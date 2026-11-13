@@ -1,0 +1,17 @@
+# 复制为 config.toml；相对路径以此配置文件所在目录为基准，不以当前工作目录为基准。
+[app]
+title = "Relationship Intelligence System"
+width = 1120
+height = 760
+
+[logging]
+level = "INFO"
+# 不指定 directory：使用数据根目录下的 logs/。
+# 显式 directory 保留 Phase 1 规则，例如 directory = "local-logs"。
+
+[storage]
+# 空字符串使用 platformdirs 的用户数据目录；也支持绝对路径。
+data_dir = ""
+# 只允许文件名，不能包含路径、.. 或 :memory:。
+database = "database.sqlite3"
+busy_timeout_ms = 5000

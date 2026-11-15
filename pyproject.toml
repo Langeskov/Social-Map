@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "relationship-intelligence-system"
 version = "0.1.0"
-description = "Local-first person, media, relationship history, event and evidence desktop application (Phase 6)"
+description = "Local-first relationship intelligence workbench: people, relationships, events, evidence and user-confirmed analysis (Qt desktop)"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

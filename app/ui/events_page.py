@@ -223,6 +223,12 @@ class EventsPage(ContextPage, QWidget):
         self.refresh_events()
 
     # ------------------------------------------------- Phase 11: context protocol
+    def context_object(self):
+        """Breadcrumb object segment: the selected Event, when there is one."""
+        if self.current_detail is None:
+            return ""
+        return self.current_detail.event.title
+
     def clear_context(self):
         """Drop the selected Event, its evidence panel and the search text."""
         self.search_timer.stop()
@@ -375,6 +381,7 @@ class EventsPage(ContextPage, QWidget):
         self.current_detail = None
         self.detail_view.set_detail(None)
         self.update_buttons()
+        self.notify_context()
         if item is None:
             return
         def load():
@@ -382,6 +389,7 @@ class EventsPage(ContextPage, QWidget):
             self.current_detail = detail
             self.detail_view.set_detail(detail)
             self.update_buttons()
+            self.notify_context()
         self.run_operation(load)
 
     @staticmethod

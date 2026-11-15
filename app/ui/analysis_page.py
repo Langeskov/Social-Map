@@ -305,6 +305,13 @@ class AnalysisPage(ContextPage, QWidget):
         progress.finished.connect(lambda _=None: self.set_workspace_locked(False))
 
     # ------------------------------------------------- Phase 11: context protocol
+    def context_object(self):
+        """Breadcrumb object segment: the selected analysis run id."""
+        view = self.current_view
+        if view is None:
+            return ""
+        return f"Run {str(view.run.id)[:8]}"
+
     def clear_context(self):
         """Forget the selected run and its result: no analysis UI context survives."""
         self.runs = []
@@ -450,6 +457,7 @@ class AnalysisPage(ContextPage, QWidget):
 
     def set_detail(self, view):
         self.current_view = view
+        self.notify_context()
         for label in self.detail_fields.values():
             label.setText("—")
         self.summary.clear()

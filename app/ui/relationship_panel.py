@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import logging
 from uuid import UUID
+from app.ui.shortcuts import install_save_shortcut
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget,
@@ -43,6 +44,7 @@ class StateDialog(QDialog):
     def __init__(self, state="ACTIVE", parent=None):
         super().__init__(parent)
         self.setWindowTitle("追加关系状态（不修改关系身份）")
+        install_save_shortcut(self)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.state = make_state_combo(state)
@@ -75,6 +77,7 @@ class RelationshipDialog(QDialog):
     def __init__(self, people, parent=None):
         super().__init__(parent)
         self.setWindowTitle("添加关系")
+        install_save_shortcut(self)
         self.resize(520, 450)
         layout = QVBoxLayout(self)
         form = QFormLayout()

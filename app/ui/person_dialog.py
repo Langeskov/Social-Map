@@ -1,6 +1,7 @@
 """Basic person fields only; saving is delegated to the page/service boundary."""
 from datetime import date
 from pathlib import Path
+from app.ui.shortcuts import install_save_shortcut
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QComboBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTextEdit, QVBoxLayout)
 
@@ -17,6 +18,7 @@ class PersonDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("编辑人物" if person else "新建人物")
         self.resize(460, 520)
+        install_save_shortcut(self)
         self.avatar_path = None
         self.fields = {}
         layout = QVBoxLayout(self)
@@ -81,6 +83,7 @@ class AliasDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("添加别称")
+        install_save_shortcut(self)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.alias = QLineEdit()

@@ -1,5 +1,6 @@
 """Event forms: factual/observed records, explicit time, UUID participants."""
 from datetime import date, datetime, timezone
+from app.ui.shortcuts import install_save_shortcut
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QHeaderView, QLineEdit, QMessageBox, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout)
@@ -25,6 +26,7 @@ class EventDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("编辑事件" if detail else "新建事件")
         self.resize(660, 680)
+        install_save_shortcut(self)
         event = detail.event if detail else None
         layout = QVBoxLayout(self)
         form = QFormLayout()

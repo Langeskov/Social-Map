@@ -11,6 +11,7 @@ from app.services.database import initialize_database
 from app.services.application import create_application_services
 from app.domain.errors import DomainError
 from app.storage.database import DatabaseError
+from app.ui.design import theme
 from app.ui.main_window import MainWindow
 
 
@@ -22,6 +23,11 @@ def main(argv: list[str] | None = None) -> int:
     qt_app = QApplication.instance() or QApplication([sys.argv[0]])
     qt_app.setApplicationName("Relationship Intelligence System")
     qt_app.setOrganizationName("RelationshipIntelligence")
+    # The Design System is installed right after the QApplication exists, before any
+    # widget is built: Fusion style, palette, font chain, the single QSS and "no UI
+    # effects". MainWindow keeps an idempotent call so tests that build a window
+    # without main() get the same look.
+    theme.apply_design(qt_app)
     try:
         config = load_config(args.config)
         logger = configure_logging(config)

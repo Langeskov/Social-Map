@@ -159,6 +159,23 @@ class ContextPage:
     def sync_workspace_combo(self) -> None:       # pragma: no cover - overridden
         """Keep the page's legacy ``workspace_combo`` showing the current Workspace."""
 
+    # ------------------------------------------------------- context breadcrumb
+    def context_object(self) -> str:
+        """The object segment of the breadcrumb, or "" when the page has none.
+
+        Pages override this; the shell only renders what it is told, so the
+        breadcrumb can never invent an object that is not actually selected.
+        """
+        return ""
+
+    def notify_context(self) -> None:
+        """Ask the shell to re-render the breadcrumb after a selection changed."""
+        window = self.window()
+        refresh = getattr(window, "refresh_crumbs", None)
+        if callable(refresh):
+            return refresh()
+        return None
+
 
 def hide_duplicate_workspace_controls(page) -> None:
     """Hide a page's own Workspace selector once the global one owns the context.

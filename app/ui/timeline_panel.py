@@ -73,6 +73,11 @@ class TimelineRow:
     item: object
     event: object = None
 
+    @property
+    def event_entity(self):
+        """The Event itself (``event`` is an EventDetail, not the entity)."""
+        return getattr(self.event, "event", None)
+
 
 def summary_text(value, limit=120):
     text = " ".join((value or "").split())
@@ -256,6 +261,32 @@ class TimelinePanel(QWidget):
         if row < 0 or row >= len(self._rows):
             return None
         return self._rows[row]
+
+    def event_rows(self):
+        """Only the Event rows of the last read (relationship changes excluded)."""
+        return [row for row in self._rows if row.item.kind == "EVENT"]
+
+    def relationship_rows(self):
+        return [row for row in self._rows if row.item.kind == "RELATIONSHIP_CHANGE"]
+
+    def select_event(self, event_id):
+        """Select the row of one Event and return it (None when it is not listed)."""
+        for index, row in enumerate(self._rows):
+            if row.item.kind == "EVENT" and row.item.entity_id == event_id:
+                self.table.selectRow(index)
+                return row
+        return None
+
+    def table_index(self, row):
+        """The table row index of a rendered row (-1 when it is not shown)."""
+        try:
+            return self._rows.index(row)
+        except ValueError:
+            return -1
+
+    def show_detail(self):
+        """Open the detail of the selected row (Event or Relationship)."""
+        return self.open_selected()
 
     def selected(self):
         """Historic EventTimeline contract: the selected row, or ``None``."""

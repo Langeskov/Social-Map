@@ -12,6 +12,7 @@ from app.services.database import initialize_database
 from app.ui.main_window import MainWindow
 from app.ui.event_dialog import EventDialog, parse_datetime
 from app.ui.event_detail import ROLE
+from app.ui.timeline_panel import summary_text
 from app.ui import events_page as module
 
 
@@ -66,8 +67,8 @@ def test_empty_events_and_timeline(event_ui):
     assert c.page.event_list.count() == 0
     assert not c.page.edit_button.isEnabled()
     c.people.refresh_people(c.a.id)
-    assert c.people.event_timeline.table.rowCount() == 0
-    assert not c.people.event_timeline.detail_button.isEnabled()
+    assert c.people.full_timeline.event_rows() == []
+    assert not c.people.full_timeline.detail_button.isEnabled()
     assert c.errors == []
 
 
@@ -79,8 +80,9 @@ def test_create_edit_timeline_detail_and_record_kinds(event_ui, monkeypatch):
     assert c.page.event_list.count() == 1
     id = c.page.current_detail.event.id
     assert c.page.detail_view.participants.rowCount() == 2
-    assert c.people.event_timeline.table.rowCount() == 1  # signal refreshes hidden People
-    dialog = c.people.event_timeline.show_detail()
+    assert len(c.people.full_timeline.event_rows()) == 1  # signal refreshes hidden People
+    c.people.full_timeline.select_event(id)
+    dialog = c.people.full_timeline.show_detail()
     assert dialog is not None and dialog.isVisible()
     assert dialog.detail_view.fields["title"].text() == "Meeting"
     dialog.close()
@@ -92,7 +94,7 @@ def test_create_edit_timeline_detail_and_record_kinds(event_ui, monkeypatch):
     assert c.page.detail_view.fields["record_kind"].text() == "OBSERVATION"
     assert "+00:00" in c.page.detail_view.fields["time"].text()
     assert c.page.detail_view.description.toPlainText() == "<b>plain private description</b>"
-    assert c.people.event_timeline.selected().event.title == "Observation"
+    assert c.people.full_timeline.selected_row().event_entity.title == "Observation"
     assert c.errors == []
 
 
@@ -102,7 +104,8 @@ def test_timeline_detail_has_edit_participants_history_delete_restore(event_ui, 
     relationship = c.services.relationships.create(c.ws, c.a.id, c.b.id, "Friend")
     history = c.services.relationships.history(c.ws, relationship.id)[0]
     c.people.refresh_people(c.a.id)
-    dialog = c.people.event_timeline.show_detail()
+    c.people.full_timeline.select_event(event.id)
+    dialog = c.people.full_timeline.show_detail()
     assert dialog is not None
     controller = dialog.controller
     assert controller.workspace_id == c.ws
@@ -111,7 +114,7 @@ def test_timeline_detail_has_edit_participants_history_delete_restore(event_ui, 
         stub_dialog(monkeypatch, values("Edited from timeline", (c.a.id,)))
         controller.edit_button.click()
         assert dialog.detail_view.fields["title"].text() == "Edited from timeline"
-        assert c.people.event_timeline.selected().event.title == "Edited from timeline"
+        assert c.people.full_timeline.selected_row().event_entity.title == "Edited from timeline"
         monkeypatch.setattr(module, "ParticipantDialog", lambda *args: SimpleNamespace(
             exec=lambda: QDialog.DialogCode.Accepted,
             values=lambda: dict(person_id=c.b.id, role="Witness", note=None)))
@@ -130,11 +133,11 @@ def test_timeline_detail_has_edit_participants_history_delete_restore(event_ui, 
         assert dialog.detail_view.histories.rowCount() == 0
         controller.delete_button.click()
         assert dialog.detail_view.fields["lifecycle"].text() == "已删除"
-        assert c.people.event_timeline.table.rowCount() == 0
+        assert c.people.full_timeline.event_rows() == []
         assert controller.restore_button.isEnabled()
         controller.restore_button.click()
         assert dialog.detail_view.fields["lifecycle"].text() == "有效记录"
-        assert c.people.event_timeline.table.rowCount() == 1
+        assert len(c.people.full_timeline.event_rows()) == 1
         assert len(c.services.relationships.history(c.ws, relationship.id)) == 1
     finally:
         dialog.close()
@@ -168,14 +171,17 @@ def test_timeline_summary_and_event_list_metadata(event_ui):
     assert "2 参与者" in text
     assert "有效记录" in text
     c.people.refresh_people(c.a.id)
-    table = c.people.event_timeline.table
-    assert table.horizontalHeaderItem(4).text() == "简述"
-    item = table.item(0, 4)
-    assert item.text().startswith("<b>private literal markup</b>")
+    # One Timeline: the complete Person Timeline carries this Event row.
+    panel = c.people.full_timeline
+    assert panel.table.horizontalHeaderItem(3).text() == "摘要"
+    row = panel.event_rows()[0]
+    item = panel.table.item(panel.table_index(row), 3)
+    assert "private literal markup" in item.text()
+    assert item.text() == summary_text(row.item.summary)
     assert item.text().endswith("…")
     assert len(item.text()) == 121
     assert "&lt;b&gt;private literal markup&lt;/b&gt;" in item.toolTip()
-    assert "Long description " * 20 in item.toolTip()
+    assert item.toolTip().count("Long description") == 20
     assert c.errors == []
 
 
@@ -184,7 +190,7 @@ def test_search_and_timeline_latest_first(event_ui):
     old = c.services.events.create_event(c.ws, **values("Older", (c.a.id,), occurred_on=date(2025, 4, 1)))
     latest = c.services.events.create_event(c.ws, **values("Newest", (c.a.id,), occurred_on=date(2025, 4, 3)))
     c.people.refresh_people(c.a.id)
-    assert c.people.event_timeline.table.item(0, 0).data(ROLE).event.id == latest.id
+    assert c.people.full_timeline.event_rows()[0].item.entity_id == latest.id
     c.page.search.setText("Older")
     c.page.refresh_events()
     assert c.page.event_list.count() == 1
@@ -203,10 +209,10 @@ def test_delete_restore_and_timeline_include_deleted(event_ui):
     c.page.refresh_events(event.id)
     c.page.delete_event()
     assert c.page.event_list.count() == 0
-    assert c.people.event_timeline.table.rowCount() == 0
+    assert c.people.full_timeline.event_rows() == []
     c.page.include_deleted.setChecked(True)
-    c.people.event_timeline.include_deleted.setChecked(True)
-    assert c.page.event_list.count() == c.people.event_timeline.table.rowCount() == 1
+    c.people.full_timeline.include_deleted.setChecked(True)
+    assert c.page.event_list.count() == len(c.people.full_timeline.event_rows()) == 1
     assert not c.page.edit_button.isEnabled()
     assert c.page.restore_button.isEnabled()
     c.page.restore_event()
@@ -219,17 +225,17 @@ def test_workspace_and_person_clear_are_isolated(event_ui):
     c = event_ui
     c.services.events.create_event(c.ws, **values(participants=(c.a.id,)))
     c.people.refresh_people(c.a.id)
-    assert c.people.event_timeline.table.rowCount() == 1
+    assert len(c.people.full_timeline.event_rows()) == 1
     other = c.people.create_workspace_named("Other")
-    assert c.people.event_timeline.person_id is None
-    assert c.people.event_timeline.table.rowCount() == 0
+    assert c.people.full_timeline.person_id is None
+    assert c.people.full_timeline.event_rows() == []
     c.page.activate()
     c.page.workspace_combo.setCurrentIndex(c.page.workspace_combo.findData(str(other.id)))
     assert c.page.current_detail is None
     assert c.page.event_list.count() == 0
     assert not c.page.edit_button.isEnabled()
     c.window.navigation.setCurrentRow(1)
-    assert c.people.event_timeline.table.rowCount() == 0
+    assert c.people.full_timeline.event_rows() == []
     assert c.errors == []
 
 
@@ -241,7 +247,7 @@ def test_page_activation_reloads_external_service_changes(event_ui):
     c.window.navigation.setCurrentRow(2)
     assert c.page.event_list.count() == 1
     c.window.navigation.setCurrentRow(1)
-    assert c.people.event_timeline.table.rowCount() == 1
+    assert len(c.people.full_timeline.event_rows()) == 1
     assert c.errors == []
 
 
@@ -347,11 +353,9 @@ def test_two_details_stale_detach_cannot_remove_other_event_link(event_ui, monke
     history = c.services.relationships.history(c.ws, rel.id)[0]
     c.services.events.attach_event_to_history(c.ws, history.id, a_event.id)
     c.people.refresh_people(c.a.id)
-    timeline = c.people.event_timeline
+    timeline = c.people.full_timeline
     def open_for(event_id):
-        row = next(row for row in range(timeline.table.rowCount())
-                   if timeline.table.item(row, 0).data(ROLE).event.id == event_id)
-        timeline.table.selectRow(row)
+        timeline.select_event(event_id)
         return timeline.show_detail()
     a_dialog, b_dialog = open_for(a_event.id), open_for(b_event.id)
     try:

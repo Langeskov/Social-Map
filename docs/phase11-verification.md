@@ -189,8 +189,8 @@ Dashboard 页只依赖 DashboardService，snapshot 的查询数保持不变。
 
 | 项 | 起点（Phase 10 基线） | 终点（Phase 11） |
 |---|---|---|
-| collected | 1378 | **1470** |
-| passed | 1373 | **1465** |
+| collected | 1378 | **1483** |
+| passed | 1373 | **1478** |
 | skipped | 5 | **5** |
 | failed | 0 | **0** |
 
@@ -198,7 +198,7 @@ Dashboard 页只依赖 DashboardService，snapshot 的查询数保持不变。
 「OS does not grant temporary-test symlink creation」（Windows symlink 权限），
 语义未变、未被删除、未被改写为通过。
 
-新增 Phase 11 测试文件（全部为新增，未删除或弱化任何历史断言）：
+新增 Phase 11 测试文件（未删除任何历史测试；`EventTimeline` 的覆盖已按 option (c) 迁移，见第 10 节）：
 
 - `tests/ui/test_phase11_design.py` — Design System、无硬编码颜色、无动画、Shell
 - `tests/ui/test_phase11_context.py` — Workspace 隔离、Context Reset、Conflict UI
@@ -206,4 +206,79 @@ Dashboard 页只依赖 DashboardService，snapshot 的查询数保持不变。
 - `tests/ui/test_phase11_events.py` — Event 阅读顺序、Evidence 标记、Timeline 筛选
 - `tests/ui/test_phase11_dashboard_search_graph.py` — Dashboard、全局搜索、Graph 筛选
 - `tests/ui/test_phase11_analysis_memory_settings.py` — Analysis 工作台与锁定、Memory 分组、Settings 分区与 Workspace 管理
+- `tests/ui/test_phase11_interaction.py` — ContextBar 对象段、Ctrl+S 保存并关闭
+
+## 10. 仓库基线与本轮增量（评审后修订）
+
+### 10.1 本地 git 工作区
+
+工作目录原先**没有** git 仓库（`fatal: not a git repository`）。按要求恢复为**本地**仓库，
+不配置 remote、不推送：
+
+- `git init -b main`，首个提交 `8ad327c` 记录 Phase 11 现状快照；
+- `.gitignore` 早已覆盖 `.venv/`、`.verification/`、`.test-runs/`、`__pycache__/`、
+  `permission-control` 类目录，无需新增；
+- 之后每个 Step 独立提交，便于审查。
+
+### 10.2 文档基线修正（不改历史 phase 文件）
+
+- `AGENTS.md`：从 Phase 1 专用任务改为长期项目规则（架构边界、冲突策略、UI 约定、
+  测试命令与基线、文档约定）。
+- `pyproject.toml`：description 不再写死阶段号。
+- `docs/architecture.md`：新增「UI 层（Phase 11）」章节；当前实现段落补 Phase 11。
+- `docs/database.md`：删掉「当前 backup 尚未实现」这一已过时的错误陈述，改指向 Phase 10 的备份实现。
+- `docs/phase3..phase10-verification.md`：**未修改**。
+
+### 10.3 Design 接入
+
+- `app/main.py` 在 `QApplication` 创建后立即 `theme.apply_design(qt_app)`；
+  `MainWindow` 仍保留幂等调用，保证直接构造窗口的测试与入口一致。
+- 品牌改为 `SOCIAL MAP`，副标题 `RELATIONSHIP INTELLIGENCE`（窗口标题继续使用 `config.title`）。
+
+### 10.4 删除重复 Timeline（option c）
+
+`app/ui/event_timeline.py` 已删除，People 页只保留完整的 `TimelinePanel`。
+其覆盖**迁移**而不是丢弃：
+
+| 原 `EventTimeline` 断言 | 迁移后的等价断言 |
+|---|---|
+| `.table.rowCount()` | `len(panel.event_rows())` |
+| `.selected().event.title` | `panel.selected_row().event_entity.title` |
+| `.show_detail()` | `panel.select_event(id)` + `panel.show_detail()` |
+| 表头第 4 列「简述」 | 表头第 3 列「摘要」（`TimelinePanel` 的列序） |
+| `.include_deleted` / `.person_id` | `TimelinePanel` 同名属性 |
+| 「两个 Timeline 共存」 | 「不存在第二个 Timeline，且完整 Timeline 同时含事件与关系变更」 |
+
+涉及文件：`tests/ui/test_event_ui.py`、`test_phase7_panels.py`、`test_phase7_navigation.py`、
+`test_evidence_ui.py`、`test_phase11_person_detail.py`。新增的 UI 辅助：
+`TimelineRow.event_entity`、`TimelinePanel.event_rows() / relationship_rows() / select_event() /
+show_detail() / table_index()`。
+
+### 10.5 ContextBar 对象段
+
+面包屑从两段扩为三段 `Workspace › Page › Object`，且只显示页面**确实选中**的对象：
+
+| 页面 | 对象段 |
+|---|---|
+| People | 选中人物的 display_name |
+| Events | 选中事件的 title |
+| Analysis | `Run <短 id>`（展示格式） |
+| Graph / Dashboard / Settings | 无（只到页面段） |
+
+- 全部 `QLabel` 强制 `PlainText`（用户姓名不会被当富文本解析）；
+- 超过 40 字符按 `…` 截断；
+- 清空选择、切换 Workspace、归档/删除所选对象后对象段立即消失。
+
+### 10.6 Ctrl+S = 保存并关闭
+
+`app/ui/shortcuts.py` 提供 `install_save_shortcut(dialog, callback=None)`，
+默认绑定对话框自身的 `accept()`，因此**校验与错误边界完全复用既有路径**，没有第二条写入通道。
+覆盖：PersonDialog、AliasDialog、EventDialog、EvidenceCreateDialog、EvidenceMetadataDialog、
+EvidenceDetailDialog（保存注释并关闭）、MemoryEditDialog、ProviderDialog、StateDialog、
+RelationshipDialog。`Esc` / `Enter` 沿用 Qt 原生行为。
+
+## 11. 本轮增量后的回归
+
+命令与前面相同（必须带 `-s`），结果为 **1483 collected / 1478 passed / 5 skipped / 0 failed**。
+
 

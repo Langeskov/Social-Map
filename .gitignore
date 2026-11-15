@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+config.toml
+data/
+.verification/
+pytest-of-*/
+.test-runs/
+permission-recovery/

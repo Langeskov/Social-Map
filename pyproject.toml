@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "relationship-intelligence-system"
+version = "0.1.0"
+description = "Local-first person, media, relationship history, event and evidence desktop application (Phase 6)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.8,<7",
+    "SQLAlchemy>=2.0.22,<2.1",
+    "Alembic>=1.16,<2",
+    "platformdirs>=4,<5",
+    "Pillow>=10,<13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+relationship-intelligence = "app.main:main"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# Test temporaries live in the git-ignored .test-runs/ directory (see conftest.py).
+# Keep only the most recent run, and only its failures, so repeated runs cannot
+# accumulate throwaway databases.
+tmp_path_retention_count = 3
+tmp_path_retention_policy = "failed"

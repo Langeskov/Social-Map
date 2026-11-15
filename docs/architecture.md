@@ -2,7 +2,7 @@
 
 ## 当前实现
 
-Phase 1 Qt 骨架、Phase 2 数据库、Phase 3 Workspace／Person／Media、Phase 4 Relationship／RelationshipHistory、Phase 5 Event／EventParticipant、Phase 6 Evidence／EvidenceMedia、Phase 7 投影层（Unified Search／Timeline／Relationship Graph／Dashboard）、Phase 8 分析层（LLM Provider／ContextBuilder／AnalysisRun／AnalysisSource）、Phase 9 的 Analysis Review 与用户确认 Memory，以及 Phase 10 的稳定化（只读完整性审计／一致性备份与恢复校验／导出／数据管理界面）。事实层仍是十一张正式业务表。旧工作区 Phase 1 指引由用户明确授权的后续阶段请求覆盖。
+Phase 1 Qt 骨架、Phase 2 数据库、Phase 3 Workspace／Person／Media、Phase 4 Relationship／RelationshipHistory、Phase 5 Event／EventParticipant、Phase 6 Evidence／EvidenceMedia、Phase 7 投影层（Unified Search／Timeline／Relationship Graph／Dashboard）、Phase 8 分析层（LLM Provider／ContextBuilder／AnalysisRun／AnalysisSource）、Phase 9 的 Analysis Review 与用户确认 Memory、Phase 10 的稳定化（只读完整性审计／一致性备份与恢复校验／导出／数据管理界面），以及 Phase 11 的 UI/UX 整合（统一 Design System、单一 Workspace 上下文、层标识与认知标识、状态矩阵、页面信息层级重排）。事实层仍是十一张正式业务表。旧工作区 Phase 1 指引由用户明确授权的后续阶段请求覆盖。
 
 ```text
 UI（Domain Entity / DTO / Service）
@@ -76,6 +76,37 @@ ApplicationServices 尾部可选 EventService 保持既有调用兼容。Events 
 只读审计（`DataIntegrityService`）、一致性备份与恢复校验（`BackupService` / `BackupVerificationService`）、导出（`WorkspaceExportService`）全部**只读源库与源媒体**，并且只由用户在 Settings 里显式触发：启动不 hash 全媒体、Dashboard 不审计、不自动备份、不自动上传。审计**只报告**（孤儿文件不删除，留给未来的 GC），备份用 SQLite 在线备份 API 取得一致快照而不是复制 WAL 文件，导出的 JSON 明确标注"不是备份"且不含任何凭据。
 
 Phase 10 的结构精简：UI 操作/错误边界合并为 [operations.py](<../app/ui/operations.py>) 唯一一份（原 21 份副本），行↔Domain 映射合并为 [mapping.py](<../app/storage/mapping.py>)（原 5 份，并修正了"通用辅助挂在关系模块"的错误归属）。各聚合自己的 workspace 作用域查询**刻意保留**——它们的可见性语义不同，强行参数化会造出假抽象。
+
+## UI 层（Phase 11）
+
+Phase 11 只改 UI 层与 UI 共享基础设施，**没有**新增 migration、没有改业务 schema、没有改 Domain 语义。
+
+```text
+MainWindow
+├── TopBar      品牌 / 全局 Workspace 选择器 / 全局搜索（Ctrl+F）/ 状态
+├── Sidebar     稳定导航（Dashboard People Events Graph Analysis Settings）+ FACT/USER/DERIVED 图例
+├── ContextBar  只读面包屑 Workspace › Page › Object（没有 Back / Forward 历史）
+└── QStackedWidget × 6 页面
+```
+
+- **Design System 唯一来源**：[design/](<../app/ui/design/>)（tokens / fonts / qss / icons / widgets / theme）。
+  应用启动时 `apply_design()` 设置 Fusion 风格、QPalette、字体链与唯一 QSS，并关闭 Qt UI Effects；
+  页面不得自带颜色或样式表（有测试扫描强制）。
+- **单一 Workspace 上下文**：[context.py](<../app/ui/context.py>) 的 `WorkspaceContext` 是唯一真相；
+  页面内旧的 `workspace_combo` 保留为**代理**（只回读上下文），不再持有独立状态。
+  切换走固定协议：`about_to_change` → 各页 `reset_context()`（关闭非模态窗口、清选中/详情/搜索）
+  → `changed` → 各页重载。Analysis 运行期间全局选择器锁定。
+- **层标识与认知标识**：Entity / Link / Occurrence / Proof / Inference 五层各有固定图标与低饱和色；
+  FACT / USER / DERIVED 与之正交（实线只读 / 用户可编辑 / 虚线 + Sources）。
+- **状态矩阵**：Normal / Empty / Loading / Error / Conflict / Archived / Deleted / Unavailable
+  由 `StateStack`、`StateNotice`、`ConflictBanner`、`StatusPill` 统一表达。
+- **冲突**：`run_operation` 仍把 `ConflictError` 的 Service 原文交给用户，并额外交给页面 banner 持久显示。
+  当前 stale snapshot 保护**只覆盖已有 expected-state guard 的操作**（Evidence 附件、Event↔RelationshipHistory）；
+  Person／Event／Memory 的普通 metadata 更新仍是 last-write-wins。Phase 11 不引入 `expected_updated_at`，
+  不重构 `ConflictError` taxonomy。
+- **无动画**：本阶段不做任何过渡、粒子、节点呼吸或动态连线；只有 Analysis 的耗时文字计数在更新。
+- **唯一非 UI 扩展**：`DashboardService.recent_analysis()`（只读，保持 `snapshot()` 的既有查询数上限），
+  用于 Dashboard 的 Recent Analysis；Dashboard 页不直接调用 `AnalysisService`。
 
 ## 未实现与后续决策
 

@@ -70,4 +70,4 @@ python -m pytest tests/database tests/storage tests/migrations -q
 
 涵盖 PRAGMA、WAL、锁等待、线程/Session隔离、事务整体回滚、读写BEGIN模式无池泄漏、复合FK、部分唯一索引、UTC重载、迁移反射一致性和应用重启。PostgreSQL表和索引DDL已编译验证，但未运行真实PostgreSQL服务。没有 SQLite 自增业务ID；未来 ChangeLog/revision 可和业务操作同事务加入，本阶段没有这些表或服务。
 
-**当前 backup 尚未实现。** WAL运行时不能只复制主库认为是一致备份；数据库+media必须统一备份，详见 [媒体文档](<media.md>)。
+**备份已由 Phase 10 实现**：`BackupService` 使用 SQLite 在线备份 API 取得一致快照（不复制 WAL 文件），并把数据库与 media 一起打包；`BackupVerificationService` 负责恢复校验，`WorkspaceExportService` 生成可阅读 JSON（明确标注不是备份）。WAL 运行时**仍然不能**只复制主库，详见 [媒体文档](<media.md>) 与 [Phase 10 验收](<phase10-verification.md>)。

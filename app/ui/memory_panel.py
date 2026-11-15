@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 
 from app.domain.errors import DomainError
 from app.services.errors import DatabaseError
+from app.ui.shortcuts import install_save_shortcut
 from app.ui.analysis_dialog import parse_optional_datetime, plain_label, time_text
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,7 @@ class MemoryEditDialog(QDialog):
                  valid_from=None, valid_until=None, title=None):
         super().__init__(parent)
         self.setWindowTitle(title or ("编辑 Memory" if memory is not None else "新增 Memory"))
+        install_save_shortcut(self)
         self.resize(620, 460)
         layout = QVBoxLayout(self)
         note = plain_label(

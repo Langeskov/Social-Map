@@ -107,11 +107,13 @@ class ContextBar(QFrame):
         last = len(self.crumbs) - 1
         for index, text in enumerate(self.crumbs):
             label = QLabel(text)
+            # PlainText: an object name is user data and must never be rich text.
             label.setTextFormat(Qt.TextFormat.PlainText)
             label.setObjectName("crumbCurrent" if index == last else "crumb")
             self.row.addWidget(label)
             if index != last:
                 separator = QLabel(CRUMB_SEPARATOR)
+                separator.setTextFormat(Qt.TextFormat.PlainText)
                 separator.setObjectName("crumb")
                 self.row.addWidget(separator)
         self.row.addStretch(1)

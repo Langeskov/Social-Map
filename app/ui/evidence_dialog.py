@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog
     QGroupBox, QHeaderView, QHBoxLayout, QLineEdit, QMessageBox, QPushButton, QTableWidget,
     QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
 from app.domain.errors import DomainError
+from app.ui.shortcuts import install_save_shortcut
 from app.ui.design.widgets import EpistemicTag
 from app.ui.event_detail import ROLE, plain_label, time_text
 
@@ -201,6 +202,7 @@ class EvidenceCreateDialog(QDialog):
     def __init__(self, service, list_media, parent=None):
         super().__init__(parent)
         self.setWindowTitle("新建证据（原始内容创建后不可修改）")
+        install_save_shortcut(self)
         self.resize(880, 760)
         self.service, self.list_media = service, list_media
         layout = QVBoxLayout(self)
@@ -310,6 +312,7 @@ class EvidenceMetadataDialog(QDialog):
     def __init__(self, detail, parent=None):
         super().__init__(parent)
         self.setWindowTitle("编辑证据元数据（仅标题与注释）")
+        install_save_shortcut(self)
         self.resize(720, 620)
         self.detail = detail
         evidence = detail.evidence
@@ -363,6 +366,8 @@ class EvidenceDetailDialog(QDialog):
     def __init__(self, detail, save_annotation=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Evidence Detail · 证据详情（原始内容只读）")
+        # Ctrl+S saves the annotation and closes; the raw evidence still cannot change.
+        install_save_shortcut(self, lambda: (self.save_annotation(), self.accept()))
         self.resize(900, 780)
         self.detail = detail
         self.save_callback = save_annotation

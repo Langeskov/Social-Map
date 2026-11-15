@@ -35,8 +35,10 @@ DASHBOARD, PEOPLE, EVENTS, GRAPH, ANALYSIS, SETTINGS = range(6)
 # resolution combination: at extreme scale the page itself scrolls (decision 9).
 MINIMUM_WIDTH = 800
 MINIMUM_HEIGHT = 560
-BRAND_TEXT = "RELATIONSHIP INTELLIGENCE"
-BRAND_SUBTITLE = "LOCAL WORKSPACE"
+#: Longest object name shown in the breadcrumb before it is elided.
+CRUMB_LIMIT = 40
+BRAND_TEXT = "SOCIAL MAP"
+BRAND_SUBTITLE = "RELATIONSHIP INTELLIGENCE"
 
 
 class MainWindow(QMainWindow):
@@ -202,6 +204,10 @@ class MainWindow(QMainWindow):
             return self.workspace_context.current_name()
         return getattr(self, "_workspace_name", "")
 
+    def refresh_crumbs(self) -> None:
+        """Public: re-render the breadcrumb (pages call this after a selection)."""
+        return self._refresh_crumbs()
+
     def _refresh_crumbs(self) -> None:
         index = self.pages.currentIndex()
         page = self.pages.currentWidget()
@@ -213,16 +219,27 @@ class MainWindow(QMainWindow):
             crumbs.append(PAGE_TITLES[index].split(" · ")[0])
         elif page is not None:
             crumbs.append(page.objectName())
+        # Object segment: only what the page actually has selected (Phase 11 §9).
+        label = ""
+        if page is not None and hasattr(page, "context_object"):
+            try:
+                label = page.context_object() or ""
+            except Exception:                      # noqa: BLE001 - a crumb must not break nav
+                label = ""
+        if label:
+            text = " ".join(str(label).split())
+            crumbs.append(text if len(text) <= CRUMB_LIMIT else text[:CRUMB_LIMIT] + "…")
         self.context_bar.set_crumbs(crumbs)
 
     # ------------------------------------------------------------------ wiring
     def _connect_pages(self) -> None:
         events_page = self.events_page
         if hasattr(events_page, "events_changed"):
+            # One Timeline: the People page's complete timeline (Events + relationship
+            # state changes) is the only view that needs refreshing on an Event change.
             events_page.events_changed.connect(lambda workspace_id: (
-                self.people_page.event_timeline.refresh()
-                if hasattr(self.people_page, "event_timeline")
-                and self.people_page.workspace_id == workspace_id else None))
+                self.people_page.full_timeline.refresh()
+                if self.people_page.workspace_id == workspace_id else None))
         for page in (self.dashboard_page, self.graph_page, self.people_page, self.analysis_page):
             if hasattr(page, "navigate_requested"):
                 page.navigate_requested.connect(self.open_target)

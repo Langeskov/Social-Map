@@ -240,6 +240,7 @@ def track_dialog(owner, dialog):
     return dialog
 
 
+from app.ui.shortcuts import install_save_shortcut
 from app.ui.operations import run_operation as _run_operation
 
 
@@ -255,6 +256,7 @@ class ProviderDialog(QDialog):
 
     def __init__(self, parent=None, *, provider=None):
         super().__init__(parent)
+        install_save_shortcut(self)
         self.original_name = provider.provider_name if provider is not None else None
         self.setWindowTitle("编辑 Provider" if provider is not None else "新增 Provider")
         self.resize(560, 460)

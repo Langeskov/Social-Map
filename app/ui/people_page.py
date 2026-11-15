@@ -19,7 +19,6 @@ from app.ui.design.widgets import LayerCard, StatusPill
 from app.ui.person_dialog import AliasDialog, FIELD_LABELS, IMAGE_FILTER, PersonDialog
 from app.ui.image_viewer import ImageViewer
 from app.ui.relationship_panel import RelationshipPanel
-from app.ui.event_timeline import EventTimeline
 from app.ui.memory_panel import MemoryPanel, MemoryWorkspaceDialog
 from app.ui.search_panel import SearchPanel
 from app.ui.timeline_panel import MODE_PERSON, MODE_WORKSPACE, RelationshipDetailDialog, TimelinePanel
@@ -212,11 +211,9 @@ class PeoplePage(ContextPage, QWidget):
         timeline_card.body.addWidget(self.full_timeline)
         detail.addWidget(timeline_card)
         self.timeline_card = timeline_card
-        # The historic Event-only timeline is no longer a second visible block (Phase 11
-        # removed the duplicate), but the widget stays alive and refreshed as the
-        # Event-only data view that the Phase 5-7 contracts address.
-        self.event_timeline = EventTimeline(services, self)
-        self.event_timeline.hide()
+        # Phase 11: one Timeline only. The historic Event-only EventTimeline was a
+        # second, duplicate view of the same facts; TimelinePanel already carries both
+        # Events and relationship state changes, so the duplicate widget is gone.
         # ------------------------------------------- Evidence / Memory / Analysis
         self.detail_tabs = QTabWidget()
         self.detail_tabs.setObjectName("personDetailTabs")
@@ -313,6 +310,12 @@ class PeoplePage(ContextPage, QWidget):
         self.refresh_people()
 
     # ------------------------------------------------- Phase 11: context protocol
+    def context_object(self):
+        """Breadcrumb object segment: the selected person, when there is one."""
+        if self.current_detail is None:
+            return ""
+        return self.current_detail.person.display_name
+
     def clear_context(self):
         """Drop the selected person and every panel that followed it."""
         self.clear_detail_view()
@@ -320,6 +323,7 @@ class PeoplePage(ContextPage, QWidget):
         self.search.clear()
         self.search.blockSignals(False)
         self.search_panel.clear()
+        self.notify_context()
 
     def load_workspace(self, workspace_id):
         if self.search_panel is not None:
@@ -393,7 +397,6 @@ class PeoplePage(ContextPage, QWidget):
         """Empty every widget of the Person Detail (used before a new selection)."""
         self.current_detail = None
         self.relationship_panel.set_person(None, None)
-        self.event_timeline.set_person(None, None)
         self.full_timeline.set_person(None, None)
         self.memory_panel.set_person(None, None)
         self.alias_list.clear()
@@ -417,6 +420,7 @@ class PeoplePage(ContextPage, QWidget):
                        self.remove_image_button, self.open_image_button, self.promote_button,
                        self.analyze_button):
             button.setEnabled(enabled)
+        self.notify_context()
 
     def _show_field(self, key, visible):
         """Hide an empty identity field instead of painting an empty box."""
@@ -488,11 +492,11 @@ class PeoplePage(ContextPage, QWidget):
                     entry.setText(entry.text() + " · 文件不可读")
                 self.image_list.addItem(entry)
             self.relationship_panel.set_person(self.workspace_id, person.id)
-            self.event_timeline.set_person(self.workspace_id, person.id)
             self.full_timeline.set_person(self.workspace_id, person.id)
             self.memory_panel.set_person(self.workspace_id, person.id)
             self.reload_person_evidence(person.id)
             self.reload_person_analysis(person.id)
+            self.notify_context()
         self.run_operation(populate)
 
     # ------------------------------------------- Evidence / Analysis per person

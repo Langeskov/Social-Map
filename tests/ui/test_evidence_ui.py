@@ -486,7 +486,8 @@ def test_timeline_single_event_detail_shows_evidence_panel(evidence_ui):
     c = evidence_ui
     make_evidence(c, title="时间线证据", annotation="时间线注释")
     c.people.refresh_people(c.person.id)
-    dialog = c.people.event_timeline.show_detail()
+    c.people.full_timeline.select_event(c.event.id)
+    dialog = c.people.full_timeline.show_detail()
     try:
         assert dialog is not None and dialog.isVisible()
         controller = dialog.controller

@@ -406,21 +406,29 @@ def test_clicking_timeline_relationship_change_opens_relationship_detail(search_
     assert search_case.errors == []
 
 
-def test_full_timeline_coexists_with_the_historic_event_timeline(search_case):
+def test_one_timeline_covers_events_and_relationship_changes(search_case):
+    """Phase 11 (option c): the duplicate Event-only timeline is deleted.
+
+    The complete Person Timeline is the only Timeline widget, and it carries both
+    Events and relationship state changes — the coverage the removed widget provided
+    is migrated onto it rather than dropped.
+    """
     services, ws = search_case.services, search_case.ws
     people_page = search_case.window.people_page
+    assert not hasattr(people_page, "event_timeline")
     panel = people_page.full_timeline
-    assert panel is not people_page.event_timeline
-    assert people_page.event_timeline.table.objectName() == "personTimeline"
     services.relationships.create(ws, search_case.alpha.id, search_case.beta.id, "Friend")
     people_page.refresh_people(search_case.alpha.id)
-    # The complete Timeline carries the relationship change; the Event-only one does not.
-    assert panel.table.rowCount() == people_page.event_timeline.table.rowCount() + 1
     assert {panel.table.item(row, 1).text() for row in range(panel.table.rowCount())} == {"事件", "关系变更"}
-    assert people_page.event_timeline.table.horizontalHeaderItem(4).text() == "简述"
+    event_ids = [row.item.entity_id for row in panel.event_rows()]
+    assert search_case.event.id in event_ids
+    assert len(panel.relationship_rows()) == 1
+    # The Event columns the removed widget exposed are still readable here.
+    assert panel.table.horizontalHeaderItem(3).text() == "摘要"
     services.events.soft_delete_event(ws, search_case.event.id)
     panel.include_deleted.setChecked(True)
-    assert panel.table.rowCount() == people_page.event_timeline.table.rowCount() + 1
+    assert search_case.event.id in [row.item.entity_id for row in panel.event_rows()]
+    assert len(panel.relationship_rows()) == 1
     assert search_case.errors == []
 
 

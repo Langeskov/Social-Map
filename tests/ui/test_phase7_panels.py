@@ -89,12 +89,15 @@ def test_person_timeline_keeps_future_events_visible_and_first(panels):
         (item.timestamp for item in event_items), reverse=True)
 
 
-def test_event_only_timeline_still_works(panels):
-    """The historic Phase 5 widget keeps its contract: events of one person."""
+def test_event_only_timeline_is_gone_and_the_complete_one_covers_events(panels):
+    """Phase 11 removed the duplicate Event-only timeline; the complete one keeps it."""
     c = panels
-    event_timeline = c.page.event_timeline
-    event_timeline.set_person(c.ws, c.person.id)
-    assert event_timeline.table.rowCount() == 2
+    assert not hasattr(c.page, "event_timeline")
+    complete = c.page.full_timeline
+    complete.set_person(c.ws, c.person.id)
+    identifiers = [row.item.entity_id for row in complete.event_rows()]
+    assert c.future.id in identifiers and c.past.id in identifiers
+    assert len(complete.event_rows()) == 2
     assert c.errors == []
 
 

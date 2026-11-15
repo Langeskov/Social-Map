@@ -63,8 +63,8 @@ def test_detail_follows_the_layer_chain(case):
     # Tabs keep the agreed order: Evidence, Memory, Analysis.
     titles = [page.detail_tabs.tabText(index) for index in range(page.detail_tabs.count())]
     assert [title.split(" · ")[0] for title in titles] == ["Evidence", "Memory", "Analysis"]
-    # The historic Event-only timeline is no longer a second visible block.
-    assert page.event_timeline.isVisible() is False
+    # One Timeline only: the duplicate Event-only widget is gone (option c).
+    assert not hasattr(page, "event_timeline")
 
 
 def test_identity_card_hides_empty_fields(case):

@@ -164,6 +164,7 @@ def test_evidence_reader_separates_raw_content_from_annotation(inspector_ui):
     page.evidence_list.setCurrentRow(0)
     c.qt_app.processEvents()
     reader = page.evidence_reader
+    assert reader.fields["title"].text() == "聊天记录"
     assert reader.fields["kind"].text() == "TEXT"
     assert reader.fields["source_type"].text() == "MANUAL"
     assert reader.content.isReadOnly()
@@ -232,6 +233,24 @@ def test_full_jump_path_person_event_evidence_analysis(inspector_ui):
     page.analysis_list.setCurrentRow(0)
     assert page.open_person_analysis() == run.id
     assert requests == [("event", c.event.id), ("analysis_run", run.id)]
+    assert c.errors == []
+
+
+def test_activity_rows_carry_the_record_status(inspector_ui):
+    c = inspector_ui
+    page = c.page
+    timeline = page.full_timeline
+    # A soft-deleted Event stays hidden until asked for, then its row is marked.
+    c.services.events.soft_delete_event(c.ws, c.event.id)
+    timeline.refresh()
+    titles = [timeline.table.item(row, 2).text() for row in range(timeline.table.rowCount())]
+    assert "已删除 · 过去会议" not in titles
+    timeline.include_deleted.setChecked(True)
+    c.qt_app.processEvents()
+    titles = [timeline.table.item(row, 2).text() for row in range(timeline.table.rowCount())]
+    assert "已删除 · 过去会议" in titles
+    # A live record keeps its plain title.
+    assert "Friend 关系状态变更" in titles
     assert c.errors == []
 
 

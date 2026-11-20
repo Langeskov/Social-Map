@@ -390,7 +390,8 @@ class EvidenceReader(QWidget):
         raw_layout.addLayout(tags)
         form = QFormLayout()
         self.fields = {}
-        for key, label in [("kind", "类型 kind"), ("source_type", "来源类型 source_type"),
+        for key, label in [("title", "标题"), ("kind", "类型 kind"),
+                           ("source_type", "来源类型 source_type"),
                            ("source_label", "来源标签 source_label"),
                            ("source_reference", "来源引用 source_reference"),
                            ("captured_at", "captured_at UTC"), ("created_at", "created_at UTC"),
@@ -457,6 +458,7 @@ class EvidenceReader(QWidget):
             self.attachments.setRowCount(0)
             return None
         evidence = detail.evidence
+        self.fields["title"].setText(evidence.title)
         self.fields["kind"].setText(evidence.kind)
         self.fields["source_type"].setText(evidence.source_type)
         self.fields["source_label"].setText(evidence.source_label or "—")

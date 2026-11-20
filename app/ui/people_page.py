@@ -1,9 +1,31 @@
-"""Minimal real People UI. Only application Services and Domain/DTO values."""
+"""Person Investigation Workspace: people as the entry point of an investigation.
+
+Layout (Phase 12.1)::
+
+    ┌──────────────────────────────────────────────────────────────┐
+    │ title │ Inspector 布局切换                                    │
+    ├────────────┬──────────────────────────────┬──────────────────┤
+    │ People     │ Person Dossier (ENTITY)      │ Inspector        │
+    │ Index      ├──────────────────────────────┤ 关系│时间线│证据  │
+    │ 过滤/归档  │ Ego Network (LINK)           │ 记忆│分析        │
+    │ 人物列表   │ 一层直接关系，GraphCanvas 复用 │                  │
+    └────────────┴──────────────────────────────┴──────────────────┘
+
+The inspector column is a nested ``QSplitter`` arrangement: side column on wide
+windows, bottom drawer on narrow ones (toggle button + width-based auto switch).
+Everything reads through the application Services; the drawing layer is shared
+with the global Graph page (:mod:`app.ui.graph_canvas`), so nodes, edges, state
+pens and click handling exist exactly once.
+
+The hidden page-level ``SearchPanel`` is a Phase 11 leftover kept only until the
+Phase 12.3 cleanup removes it together with its historical test contracts; the
+page's visible search box is a *local list filter*, not a search engine entry.
+"""
 import logging
 from dataclasses import dataclass
 from uuid import UUID
 from pathlib import Path
-from PySide6.QtCore import Qt, QSize, QTimer, Signal
+from PySide6.QtCore import QPointF, Qt, QSize, QTimer, Signal
 from app.ui.operations import run_operation as _run_operation
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
@@ -18,13 +40,20 @@ from app.ui.design.tokens import SPACE
 from app.ui.design.widgets import LayerCard, StatusPill
 from app.ui.person_dialog import AliasDialog, FIELD_LABELS, IMAGE_FILTER, PersonDialog
 from app.ui.image_viewer import ImageViewer
+from app.ui.graph_canvas import (GraphClicks, GraphView, build_graph_items, ego_positions)
 from app.ui.relationship_panel import RelationshipPanel
 from app.ui.memory_panel import MemoryPanel, MemoryWorkspaceDialog
 from app.ui.search_panel import SearchPanel
 from app.ui.timeline_panel import MODE_PERSON, RelationshipDetailDialog, TimelinePanel
+from PySide6.QtWidgets import QGraphicsScene
 
 logger = logging.getLogger(__name__)
 ROLE = Qt.ItemDataRole.UserRole
+
+#: Content width below which the inspector moves under the work area (compact).
+INSPECTOR_AUTO_THRESHOLD = 1400
+#: Debounce so a resize storm reparents the inspector once.
+INSPECTOR_AUTO_DEBOUNCE_MS = 150
 
 
 def plain_label(text=""):
@@ -62,13 +91,22 @@ class PeoplePage(ContextPage, QWidget):
         self.current_detail = None
         self._viewers = []
         self._dialogs = []
+        self._inspector_mode_locked = False
+        self.inspector_mode = None
         layout = QVBoxLayout(self)
         margin = SPACE["md"]
         layout.setContentsMargins(margin, margin, margin, margin)
         layout.setSpacing(SPACE["sm"])
-        title = plain_label("People · 人物")
+        top_title = QHBoxLayout()
+        title = plain_label("People · 人物调查工作台")
         title.setObjectName("pageTitle")
-        layout.addWidget(title)
+        top_title.addWidget(title)
+        top_title.addStretch(1)
+        self.inspector_mode_button = QPushButton("Inspector：侧栏（点击切换到底部）")
+        self.inspector_mode_button.setObjectName("peopleInspectorMode")
+        self.inspector_mode_button.clicked.connect(self.toggle_inspector_mode)
+        top_title.addWidget(self.inspector_mode_button)
+        layout.addLayout(top_title)
         top = QHBoxLayout()
         top.addWidget(QLabel("当前 Workspace"))
         self.workspace_combo = QComboBox()
@@ -82,10 +120,15 @@ class PeoplePage(ContextPage, QWidget):
                                         placeholder="统一搜索：人物 / 别称 / 事件 / 证据（本页过滤见下方）")
         self.search_panel.navigate_requested.connect(self.open_search_result)
         # Phase 11: unified search moved to the TopBar (Ctrl+F); this page keeps its
-        # own *filter* box, and the embedded panel is no longer a visible duplicate.
+        # own *filter* box. The embedded panel stays hidden until the Phase 12.3
+        # cleanup removes it with its historical test contracts.
         self.search_panel.hide()
-        splitter = QSplitter()
+        # ----------------------------------------------- three-region workspace
+        self.outer_split = QSplitter(Qt.Orientation.Vertical)
+        self.inner_split = QSplitter(Qt.Orientation.Horizontal)
+        # People Index (left)
         left = QWidget()
+        left.setMinimumWidth(200)
         column = QVBoxLayout(left)
         column.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit()
@@ -113,15 +156,11 @@ class PeoplePage(ContextPage, QWidget):
         self.people_list.setObjectName("peopleList")
         self.people_list.currentItemChanged.connect(self.select_person)
         column.addWidget(self.people_list)
-        splitter.addWidget(left)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        right = QWidget()
-        detail = QVBoxLayout(right)
-        detail.setContentsMargins(0, 0, 0, 0)
-        detail.setSpacing(SPACE["md"])
-        # ---------------------------------------------------------- Identity
-        identity = LayerCard("ENTITY", "Identity · 身份", right)
+        self.inner_split.addWidget(left)
+        # Centre: Dossier over Ego Network
+        self.center_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.center_splitter.setMinimumWidth(360)
+        identity = LayerCard("ENTITY", "Identity · 身份", self.center_splitter)
         identity.setObjectName("personIdentityCard")
         body = identity.body
         avatar_row = QHBoxLayout()
@@ -166,12 +205,12 @@ class PeoplePage(ContextPage, QWidget):
         body.addLayout(row)
         self.notes = QTextEdit()
         self.notes.setReadOnly(True)
-        self.notes.setMaximumHeight(90)
+        self.notes.setMaximumHeight(70)
         body.addWidget(QLabel("备注"))
         body.addWidget(self.notes)
         body.addWidget(QLabel("别称"))
         self.alias_list = QListWidget()
-        self.alias_list.setMaximumHeight(90)
+        self.alias_list.setMaximumHeight(70)
         body.addWidget(self.alias_list)
         row = QHBoxLayout()
         self.add_alias_button = self.button(row, "添加别称", self.add_alias)
@@ -179,8 +218,8 @@ class PeoplePage(ContextPage, QWidget):
         body.addLayout(row)
         body.addWidget(QLabel("头像 / Gallery（删除引用不会删除原图）"))
         self.image_list = QListWidget()
-        self.image_list.setIconSize(QSize(64, 64))
-        self.image_list.setMinimumHeight(120)
+        self.image_list.setIconSize(QSize(48, 48))
+        self.image_list.setMinimumHeight(80)
         self.image_list.itemDoubleClicked.connect(lambda _: self.open_image())
         body.addWidget(self.image_list)
         row = QHBoxLayout()
@@ -192,16 +231,55 @@ class PeoplePage(ContextPage, QWidget):
         self.open_image_button = self.button(row, "查看原图", self.open_image)
         self.promote_button = self.button(row, "设为头像", self.promote_image)
         body.addLayout(row)
-        detail.addWidget(identity)
         self.identity_card = identity
-        # ----------------------------------------------------- Relationships
-        relationships = LayerCard("LINK", "Relationships · 关系", right)
+        # The dossier scrolls inside its own pane, so the Ego Network keeps its
+        # room on short windows instead of being pushed off screen.
+        dossier_scroll = QScrollArea()
+        dossier_scroll.setWidgetResizable(True)
+        dossier_scroll.setWidget(identity)
+        self.center_splitter.addWidget(dossier_scroll)
+        # --------------------------------------------- Ego Network (one hop)
+        self.ego_card = LayerCard("LINK", "Ego Network · 局部关系网络（一层直接关系）",
+                                  self.center_splitter)
+        self.ego_card.setObjectName("egoNetworkCard")
+        ego_controls = QHBoxLayout()
+        self.ego_show_archived = QCheckBox("显示已归档人物")
+        self.ego_show_archived.setObjectName("egoShowArchived")
+        self.ego_show_archived.toggled.connect(lambda _: self.rebuild_ego())
+        ego_controls.addWidget(self.ego_show_archived)
+        self.ego_show_deleted = QCheckBox("显示已删除关系")
+        self.ego_show_deleted.setObjectName("egoShowDeleted")
+        self.ego_show_deleted.toggled.connect(lambda _: self.rebuild_ego())
+        ego_controls.addWidget(self.ego_show_deleted)
+        ego_controls.addStretch(1)
+        self.ego_card.body.addLayout(ego_controls)
+        self.ego_scene = QGraphicsScene(self)
+        self.ego_view = GraphView(self.ego_scene, self.ego_card)
+        self.ego_view.setObjectName("egoCanvas")
+        self.ego_view.setMinimumHeight(240)
+        self.ego_view.click_handler = GraphClicks(self._ego_open_person, self._ego_open_relationship)
+        self.ego_card.body.addWidget(self.ego_view, 1)
+        self.ego_status = plain_label("尚未选择人物。")
+        self.ego_status.setObjectName("egoStatus")
+        self.ego_card.body.addWidget(self.ego_status)
+        self.ego_nodes = []
+        self.ego_edges = []
+        self.ego_layout = {}
+        self.center_splitter.addWidget(self.ego_card)
+        self.center_splitter.setSizes([340, 260])
+        self.inner_split.addWidget(self.center_splitter)
+        # ------------------------------------------- Inspector (tabs, movable)
+        self.detail_tabs = QTabWidget()
+        self.detail_tabs.setObjectName("personDetailTabs")
+        # LINK: relationship management (the canvas only visualises; writes live here).
+        relationships = LayerCard("LINK", "Relationships · 关系", self.detail_tabs)
         self.relationship_panel = RelationshipPanel(services, self)
         relationships.body.addWidget(self.relationship_panel)
-        detail.addWidget(relationships)
         self.relationships_card = relationships
-        # ---------------------------------------------------------- Timeline
-        timeline_card = LayerCard("OCCURRENCE", "Timeline · 时间线（Event + 关系状态变更）", right)
+        self.detail_tabs.addTab(relationships, "关系 · Relationships")
+        # OCCURRENCE: the complete person timeline (Events + relationship changes).
+        timeline_card = LayerCard("OCCURRENCE", "Timeline · 时间线（Event + 关系状态变更）",
+                                  self.detail_tabs)
         timeline_card.setObjectName("peopleTimelineGroup")
         self.full_timeline = TimelinePanel(services, self)
         self.full_timeline.mode = MODE_PERSON
@@ -209,14 +287,9 @@ class PeoplePage(ContextPage, QWidget):
             max(0, self.full_timeline.mode_combo.findData(MODE_PERSON)))
         self.full_timeline.mode_combo.hide()
         timeline_card.body.addWidget(self.full_timeline)
-        detail.addWidget(timeline_card)
         self.timeline_card = timeline_card
-        # Phase 11: one Timeline only. The historic Event-only EventTimeline was a
-        # second, duplicate view of the same facts; TimelinePanel already carries both
-        # Events and relationship state changes, so the duplicate widget is gone.
-        # ------------------------------------------- Evidence / Memory / Analysis
-        self.detail_tabs = QTabWidget()
-        self.detail_tabs.setObjectName("personDetailTabs")
+        self.detail_tabs.addTab(timeline_card, "时间线 · Timeline")
+        # PROOF: Evidence of the Events this person took part in (via Event only).
         evidence_tab = QWidget()
         evidence_column = QVBoxLayout(evidence_tab)
         evidence_column.setContentsMargins(0, 0, 0, 0)
@@ -231,11 +304,10 @@ class PeoplePage(ContextPage, QWidget):
         evidence_card.body.addWidget(self.evidence_status)
         evidence_column.addWidget(evidence_card)
         self.detail_tabs.addTab(evidence_tab, "Evidence · 证据")
+        # USER: user-confirmed memory has its own tab (never a fact).
         memory_tab = QWidget()
         memory_column = QVBoxLayout(memory_tab)
         memory_column.setContentsMargins(0, 0, 0, 0)
-        # Phase 9 + decision 3: Memory is a user-confirmed semantic layer, so it has
-        # its own tab instead of sitting inside the Fact -> Evidence -> Analysis chain.
         self.memory_panel = MemoryPanel(services, self, allow_person=True,
                                         name="personMemoryPanel",
                                         title="User-confirmed Memory · 你确认过的内容")
@@ -245,6 +317,7 @@ class PeoplePage(ContextPage, QWidget):
                                                    self.open_workspace_memories)
         memory_column.addLayout(memory_row)
         self.detail_tabs.addTab(memory_tab, "Memory · 记忆")
+        # INFERENCE: recorded analysis runs (DERIVED, never a fact).
         analysis_tab = QWidget()
         analysis_column = QVBoxLayout(analysis_tab)
         analysis_column.setContentsMargins(0, 0, 0, 0)
@@ -259,14 +332,19 @@ class PeoplePage(ContextPage, QWidget):
         self.analysis_layer.body.addWidget(self.analysis_status)
         analysis_column.addWidget(self.analysis_layer)
         self.detail_tabs.addTab(analysis_tab, "Analysis · 分析")
-        detail.addWidget(self.detail_tabs)
-        detail.addStretch()
-        scroll.setWidget(right)
-        splitter.addWidget(scroll)
-        splitter.setSizes([300, 620])
-        layout.addWidget(splitter, 1)
+        self.detail_tabs.setMinimumWidth(300)
+        self.inner_split.setCollapsible(0, False)
+        self.inner_split.setCollapsible(1, False)
+        self.outer_split.addWidget(self.inner_split)
+        layout.addWidget(self.outer_split, 1)
         self.status = plain_label()
         layout.addWidget(self.status)
+        self._inspector_mode_timer = QTimer(self)
+        self._inspector_mode_timer.setSingleShot(True)
+        self._inspector_mode_timer.setInterval(INSPECTOR_AUTO_DEBOUNCE_MS)
+        self._inspector_mode_timer.timeout.connect(self._auto_inspector_mode)
+        self.set_inspector_mode("side")
+        self.inner_split.setSizes([220, 700, 380])
         self.refresh_workspaces()
         self.refresh_people()
 
@@ -280,6 +358,52 @@ class PeoplePage(ContextPage, QWidget):
     def run_operation(self, callback):
         """Delegates to the shared UI operation boundary (``app.ui.operations``)."""
         return _run_operation(self, callback, context="People UI", title="操作未完成")
+
+    # ------------------------------------------------------- inspector layout
+
+    def set_inspector_mode(self, mode):
+        """Place the inspector as a side column or a bottom drawer.
+
+        The same tab widget is reparented between the two splitters, so every
+        panel, selection and signal survives the move.
+        """
+        if mode not in ("side", "bottom") or mode == self.inspector_mode:
+            return self.inspector_mode
+        self.inspector_mode = mode
+        if mode == "side":
+            self.inner_split.addWidget(self.detail_tabs)
+            self.inner_split.setCollapsible(2, False)
+            self.detail_tabs.setMinimumWidth(300)
+            self.detail_tabs.setMinimumHeight(0)
+            self.inner_split.setSizes([220, 700, 380])
+            self.inspector_mode_button.setText("Inspector：侧栏（点击切换到底部）")
+        else:
+            self.outer_split.addWidget(self.detail_tabs)
+            self.outer_split.setCollapsible(0, False)
+            self.outer_split.setCollapsible(1, False)
+            self.detail_tabs.setMinimumWidth(0)
+            self.detail_tabs.setMinimumHeight(200)
+            self.outer_split.setSizes([440, 240])
+            self.inspector_mode_button.setText("Inspector：底部（点击切换到侧栏）")
+        return mode
+
+    def toggle_inspector_mode(self):
+        """Explicit user choice; stops the width-based auto switch from fighting it."""
+        self._inspector_mode_locked = True
+        return self.set_inspector_mode("bottom" if self.inspector_mode == "side" else "side")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not self._inspector_mode_locked:
+            self._inspector_mode_timer.start()
+
+    def _auto_inspector_mode(self):
+        if self._inspector_mode_locked:
+            return self.inspector_mode
+        mode = "side" if self.width() >= INSPECTOR_AUTO_THRESHOLD else "bottom"
+        return self.set_inspector_mode(mode)
+
+    # ------------------------------------------------------------------ workspace
 
     def refresh_workspaces(self):
         workspaces = self.services.workspaces.list()
@@ -308,6 +432,23 @@ class PeoplePage(ContextPage, QWidget):
         self.workspace_id = workspace_id
         self.clear_context()
         self.refresh_people()
+
+    def create_workspace_named(self, name):
+        workspace = self.services.workspaces.create(name)
+        if self.workspace_context is not None:
+            self.workspace_context.refresh()
+            self.workspace_context.set_workspace(workspace.id)
+            self.refresh_workspaces()
+            return workspace
+        self.workspace_id = workspace.id
+        self.refresh_workspaces()
+        self.refresh_people()
+        return workspace
+
+    def create_workspace(self):
+        name, accepted = QInputDialog.getText(self, "新建 Workspace", "名称")
+        if accepted:
+            self.run_operation(lambda: self.create_workspace_named(name))
 
     # ------------------------------------------------- Phase 11: context protocol
     def context_object(self):
@@ -340,22 +481,12 @@ class PeoplePage(ContextPage, QWidget):
         finally:
             self.workspace_combo.blockSignals(False)
 
-    def create_workspace_named(self, name):
-        workspace = self.services.workspaces.create(name)
-        if self.workspace_context is not None:
-            self.workspace_context.refresh()
-            self.workspace_context.set_workspace(workspace.id)
-            self.refresh_workspaces()
-            return workspace
-        self.workspace_id = workspace.id
-        self.refresh_workspaces()
+    def activate(self):
+        self.run_operation(self.refresh_workspaces)
+        self.search_panel.set_workspace(self.workspace_id)
         self.refresh_people()
-        return workspace
 
-    def create_workspace(self):
-        name, accepted = QInputDialog.getText(self, "新建 Workspace", "名称")
-        if accepted:
-            self.run_operation(lambda: self.create_workspace_named(name))
+    # ------------------------------------------------------------- people list
 
     def refresh_people(self, selected_id=None):
         self.search_timer.stop()
@@ -399,6 +530,8 @@ class PeoplePage(ContextPage, QWidget):
         self.relationship_panel.set_person(None, None)
         self.full_timeline.set_person(None, None)
         self.memory_panel.set_person(None, None)
+        self.clear_ego()
+        self.detail_tabs.setCurrentIndex(0)
         self.alias_list.clear()
         self.image_list.clear()
         self.evidence_list.clear()
@@ -484,9 +617,9 @@ class PeoplePage(ContextPage, QWidget):
                     path = self.services.media.original_path(self.workspace_id, image.media.id)
                     pixmap = QPixmap(str(path))
                     if not pixmap.isNull():
-                        entry.setIcon(QIcon(pixmap.scaled(64, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)))
+                        entry.setIcon(QIcon(pixmap.scaled(48, 48, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)))
                         if image.link.role == "AVATAR":
-                            self.avatar.setPixmap(pixmap.scaled(150, 150, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                            self.avatar.setPixmap(pixmap.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
                 except (DomainError, DatabaseError, OSError) as exc:
                     logger.warning("Media thumbnail unavailable: type=%s", type(exc).__name__)
                     entry.setText(entry.text() + " · 文件不可读")
@@ -494,10 +627,149 @@ class PeoplePage(ContextPage, QWidget):
             self.relationship_panel.set_person(self.workspace_id, person.id)
             self.full_timeline.set_person(self.workspace_id, person.id)
             self.memory_panel.set_person(self.workspace_id, person.id)
+            self.rebuild_ego()
             self.reload_person_evidence(person.id)
             self.reload_person_analysis(person.id)
             self.notify_context()
         self.run_operation(populate)
+
+    # ------------------------------------------------------------- ego network
+
+    def clear_ego(self):
+        """No node, edge or status text from the previous selection survives."""
+        self.ego_scene.clear()
+        self.ego_nodes = []
+        self.ego_edges = []
+        self.ego_layout = {}
+        self.ego_status.setText("尚未选择人物。")
+
+    def ego_relationships(self):
+        """One-hop Relationship facts of the current person (toggles match GraphPage).
+
+        Returns ``None`` when the read contract cannot serve an archived person:
+        ``RelationshipService.list_by_person`` only reads live people, and Phase 12
+        does not change that. Nothing is invented in its place.
+        """
+        person = getattr(self.current_detail, "person", None)
+        service = getattr(self.services, "relationships", None)
+        if person is None or self.workspace_id is None:
+            return []
+        if service is None:
+            return None
+        if person.deleted_at is not None:
+            return None
+        show_archived = self.ego_show_archived.isChecked()
+        show_deleted = self.ego_show_deleted.isChecked()
+        views = service.list_by_person(self.workspace_id, person.id,
+                                       include_deleted=show_deleted or show_archived)
+        return [view for view in views if show_deleted or view.relationship.deleted_at is None]
+
+    def ego_avatar_for(self, person):
+        """Avatar of a neighbour, or None (an archived person has no readable detail)."""
+        if getattr(person, "deleted_at", None) is not None:
+            return None
+        try:
+            detail = self.services.people.detail(self.workspace_id, person.id)
+        except (DomainError, NotFoundError, DatabaseError, OSError, ValueError) as exc:
+            logger.warning("Ego avatar unavailable: type=%s", type(exc).__name__)
+            return None
+        for image in getattr(detail, "images", ()):
+            if image.link.role != "AVATAR":
+                continue
+            try:
+                pixmap = QPixmap(str(self.services.media.original_path(self.workspace_id, image.media.id)))
+            except (DomainError, DatabaseError, OSError, ValueError) as exc:
+                logger.warning("Ego avatar file unavailable: type=%s", type(exc).__name__)
+                return None
+            return None if pixmap.isNull() else pixmap
+        return None
+
+    def rebuild_ego(self):
+        """Redraw the current person's one-hop network from the Services. Persists nothing."""
+        self.clear_ego()
+        person = getattr(self.current_detail, "person", None)
+        if person is None:
+            self.ego_status.setText("尚未选择人物。")
+            return []
+        if getattr(self.services, "relationships", None) is None:
+            self.ego_status.setText("关系服务尚未装配：局部关系网络不可用。")
+            return []
+        if person.deleted_at is not None:
+            self.ego_status.setText(
+                "已归档人物：关系读取受限，局部关系网络不可用；身份与历史仍可查看。")
+            return []
+
+        def build():
+            views = self.ego_relationships()
+            if views is None:
+                self.ego_status.setText("关系服务尚未装配：局部关系网络不可用。")
+                return []
+            neighbors = []
+            seen = set()
+            for view in views:
+                other = view.other(person.id)
+                if other.id not in seen:
+                    seen.add(other.id)
+                    neighbors.append(other)
+            people = [person] + neighbors
+            spots = [QPointF(0.0, 0.0)] + ego_positions(len(neighbors))
+            counts = {person.id: 0}
+            for neighbor in neighbors:
+                counts[neighbor.id] = 0
+            for view in views:
+                counts[view.person_a.id] = counts.get(view.person_a.id, 0) + 1
+                counts[view.person_b.id] = counts.get(view.person_b.id, 0) + 1
+            center_pixmap = self.avatar.pixmap()
+            center_avatar = (center_pixmap if center_pixmap is not None and not center_pixmap.isNull()
+                             else None)
+
+            def avatar_for(node_person):
+                if node_person.id == person.id:
+                    return center_avatar
+                return self.ego_avatar_for(node_person)
+
+            nodes, edges, layout = build_graph_items(people, counts, views, spots,
+                                                     avatar_for=avatar_for)
+            for node in nodes:
+                self.ego_scene.addItem(node)
+            for edge in edges:
+                self.ego_scene.addItem(edge)
+            self.ego_nodes, self.ego_edges, self.ego_layout = nodes, edges, layout
+            center_node = self.ego_node_for_person(person.id)
+            if center_node is not None:
+                center_node.current = True
+                center_node.setToolTip(f"{person.display_name} · 当前人物 · 关系 {center_node.count}")
+                center_node.update()
+            self.ego_scene.setSceneRect(self.ego_scene.itemsBoundingRect().adjusted(-40, -40, 40, 40))
+            if not views:
+                self.ego_status.setText("该人物还没有关系记录。")
+            else:
+                widened = "（含已归档人物 / 已删除关系）" if (self.ego_show_archived.isChecked()
+                                                              or self.ego_show_deleted.isChecked()) else ""
+                self.ego_status.setText(
+                    f"局部关系网络 · 一层 · {len(neighbors)} 人 · {len(edges)} 条关系{widened}"
+                    f" · 数据来自人物与关系服务，未新增任何表")
+            return edges
+        return self.run_operation(build)
+
+    def ego_node_for_person(self, person_id):
+        return next((node for node in self.ego_nodes if node.person_id == person_id), None)
+
+    def _ego_open_person(self, item, event=None):
+        """Ego node click: open that person here (one workspace, one selection)."""
+        person = getattr(item, "person", item)
+        person_id = getattr(person, "id", None)
+        if person_id is None:
+            return None
+        return self.refresh_people(person_id)
+
+    def _ego_open_relationship(self, item, event=None):
+        """Ego edge click: the real read-only Relationship detail (Service data)."""
+        view = getattr(item, "view", item)
+        relationship_id = getattr(getattr(view, "relationship", None), "id", None)
+        if relationship_id is None:
+            return None
+        return self.open_relationship(relationship_id)
 
     # ------------------------------------------- Evidence / Analysis per person
     def reload_person_evidence(self, person_id):
@@ -637,11 +909,6 @@ class PeoplePage(ContextPage, QWidget):
                 self.navigate_requested.emit("event", event_id)
         return result
 
-    def activate(self):
-        self.run_operation(self.refresh_workspaces)
-        self.search_panel.set_workspace(self.workspace_id)
-        self.refresh_people()
-
     # ------------------------------------------------------------ Phase 9: memory
     def open_workspace_memories(self):
         """Open the Workspace-level Memory list (``person_id IS NULL``).
@@ -660,6 +927,7 @@ class PeoplePage(ContextPage, QWidget):
         dialog.show()
         return dialog
 
+    # ------------------------------------------------------------------- writes
     def create_person(self):
         dialog = PersonDialog(parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted:

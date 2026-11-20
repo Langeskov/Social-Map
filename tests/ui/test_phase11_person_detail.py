@@ -57,12 +57,16 @@ def test_detail_follows_the_layer_chain(case):
     page = case.page
     assert isinstance(page.identity_card, LayerCard)
     assert page.identity_card.layer.key == "ENTITY"
+    assert page.ego_card.layer.key == "LINK"
     assert page.relationships_card.layer.key == "LINK"
     assert page.timeline_card.layer.key == "OCCURRENCE"
     assert page.analysis_layer.layer.key == "INFERENCE"
     # Tabs keep the agreed order: Evidence, Memory, Analysis.
     titles = [page.detail_tabs.tabText(index) for index in range(page.detail_tabs.count())]
-    assert [title.split(" · ")[0] for title in titles] == ["Evidence", "Memory", "Analysis"]
+    # The inspector tabs keep the layer chain: Link -> Occurrence -> Proof
+    # -> User memory -> Inference (Phase 12 workspace order).
+    assert [title.split(" · ")[0] for title in titles] == [
+        "关系", "时间线", "Evidence", "Memory", "Analysis"]
     # One Timeline only: the duplicate Event-only widget is gone (option c).
     assert not hasattr(page, "event_timeline")
 

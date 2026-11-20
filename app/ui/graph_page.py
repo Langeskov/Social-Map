@@ -12,22 +12,23 @@ The graph is a *rendering* of the database, never a second truth:
 * a node shows only facts - display name, avatar reference and the number of
   relationships drawn. No inference, personality, affinity or score ever appears.
 
-The layout is a static ring and the arrow heads are static polygons: no animation,
-no particle, no auto-layout transition and no timer exists in this module.
+The drawing primitives (``PersonNode``, ``RelationshipEdge``, ``GraphView``,
+geometry and state pens) live in :mod:`app.ui.graph_canvas` so the Ego Network on
+the People workspace draws with exactly the same implementation. The layout is a
+static ring and the arrow heads are static polygons: no animation, no particle,
+no auto-layout transition and no timer exists in this module.
 
 Click handling lives on the *view*, not on the items: rebuilding the graph clears
 the scene, which destroys the items (and with them any signal connection they own),
-while the view and the page outlive every rebuild.
+while the view and the page outlive every rebuild. This page registers itself as
+the explicit click handler.
 """
 import logging
-import math
 from uuid import UUID
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import (QBrush, QColor, QFont, QPainterPath, QPainterPathStroker, QPen, QPixmap,
-    QPolygonF, QTransform)
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGraphicsItem, QGraphicsPathItem,
-    QGraphicsPolygonItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView, QHBoxLayout, QLabel,
+from PySide6.QtGui import QBrush, QColor, QPen, QPixmap
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGraphicsScene, QHBoxLayout, QLabel,
     QPushButton, QVBoxLayout, QWidget)
 
 from app.domain.entities import Person
@@ -36,31 +37,14 @@ from app.services.errors import DatabaseError
 from app.ui.context import ContextPage
 from app.ui.design.tokens import COLORS
 from app.ui.event_detail import plain_label
+from app.ui.graph_canvas import (PersonNode, RelationshipEdge, GraphView, build_graph_items,
+    circular_positions)
 from app.ui.person_dialog import PersonDialog
 from app.ui.timeline_panel import RelationshipDetailDialog
 
 logger = logging.getLogger(__name__)
 
 ALL_TYPES = "全部"
-NODE_DIAMETER = 120.0
-RING_RADIUS = 260.0
-ARROW_LENGTH = 16.0
-ARROW_WIDTH = 7.0
-EDGE_LABEL_OFFSET = 22.0
-AVATAR_SIZE = 34
-MIN_SCALE, MAX_SCALE = 0.25, 4.0
-
-# Edge identity comes from the Design System: ACTIVE uses the neutral emphasis,
-# PAUSED the single warning colour, ENDED / unknown the archived colour. Only the
-# line style distinguishes deleted edges, so colour stays meaningful.
-STATE_PENS = {
-    "ACTIVE": (COLORS["accent"], Qt.PenStyle.SolidLine),
-    "PAUSED": (COLORS["warning"], Qt.PenStyle.DashLine),
-    "ENDED": (COLORS["archived"], Qt.PenStyle.DotLine),
-}
-UNKNOWN_STATE_PEN = (COLORS["archived"], Qt.PenStyle.DashDotLine)
-DIRECTED_COLOUR = COLORS["accent"]
-DELETED_COLOUR = COLORS["archived"]
 
 
 from app.ui.operations import run_operation as _run_operation
@@ -69,248 +53,6 @@ from app.ui.operations import run_operation as _run_operation
 def run_operation(parent, callback):
     """Delegates to the shared UI operation boundary (``app.ui.operations``)."""
     return _run_operation(parent, callback, context="Graph UI", title="关系图操作未完成")
-
-
-def circular_positions(count, ring_radius=RING_RADIUS):
-    """Static ring layout: deterministic, so the same facts render the same way."""
-    if count <= 0:
-        return []
-    if count == 1:
-        return [QPointF(0.0, 0.0)]
-    step = 2.0 * math.pi / count
-    return [QPointF(ring_radius * math.cos(index * step), ring_radius * math.sin(index * step))
-            for index in range(count)]
-
-
-def arc_path(start, end, offset=0.35):
-    """A quadratic arc: parallel relationships between one pair stay clickable."""
-    path = QPainterPath(start)
-    if offset == 0.0:
-        path.lineTo(end)
-        return path
-    control = QPointF((start.x() + end.x()) / 2 + (end.y() - start.y()) * offset,
-                      (start.y() + end.y()) / 2 - (end.x() - start.x()) * offset)
-    path.quadTo(control, end)
-    return path
-
-
-def edge_label_position(start, end, offset=EDGE_LABEL_OFFSET):
-    middle = QPointF((start.x() + end.x()) / 2, (start.y() + end.y()) / 2)
-    length = math.hypot(end.x() - start.x(), end.y() - start.y())
-    if length == 0:
-        return middle
-    return QPointF(middle.x() - (end.y() - start.y()) / length * offset,
-                   middle.y() + (end.x() - start.x()) / length * offset)
-
-
-def arrow_polygon(tip, direction):
-    """Static arrow head at ``tip`` pointing along the unit vector ``direction``."""
-    base = QPointF(tip.x() - direction.x() * ARROW_LENGTH, tip.y() - direction.y() * ARROW_LENGTH)
-    normal = QPointF(-direction.y(), direction.x())
-    return QPolygonF([tip,
-                      QPointF(base.x() + normal.x() * ARROW_WIDTH, base.y() + normal.y() * ARROW_WIDTH),
-                      QPointF(base.x() - normal.x() * ARROW_WIDTH, base.y() - normal.y() * ARROW_WIDTH)])
-
-
-def state_label(state):
-    return state if state else "尚未生效"
-
-
-def relationship_pen(current_state, deleted=False, directed=False):
-    if deleted:
-        colour, style = DELETED_COLOUR, Qt.PenStyle.DashLine
-    else:
-        colour, style = UNKNOWN_STATE_PEN if current_state is None else STATE_PENS.get(
-            current_state, UNKNOWN_STATE_PEN)
-    return QPen(QColor(colour), 3 if directed else 2, style)
-
-
-class GraphView(QGraphicsView):
-    """Plain view: left-drag pans, the wheel scales, clicks dispatch to the page.
-
-    No animation and no timer: the wheel handler scales once per event, and a click
-    is resolved synchronously against the item under the cursor.
-    """
-
-    def __init__(self, scene, parent=None):
-        super().__init__(scene, parent)
-        self.setRenderHint(self.renderHints().Antialiasing, True)
-        self.setRenderHint(self.renderHints().TextAntialiasing, True)
-        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setMinimumHeight(320)
-        self.setObjectName("graphCanvas")
-
-    def graph_page(self):
-        return graph_page_of(self)
-
-    def wheelEvent(self, event):
-        self.zoom_by(1.15 if event.angleDelta().y() > 0 else 1 / 1.15)
-
-    def zoom_by(self, factor):
-        """Deterministic scale step; clamped so the graph stays usable."""
-        target = self.transform().m11() * factor
-        if not MIN_SCALE <= target <= MAX_SCALE:
-            return self.transform().m11()
-        self.scale(factor, factor)
-        return self.transform().m11()
-
-    def reset_zoom(self):
-        self.setTransform(QTransform())
-        return self.transform().m11()
-
-    def mouseReleaseEvent(self, event):
-        item = self.itemAt(event.position().toPoint())
-        super().mouseReleaseEvent(event)
-        if item is not None and event.button() == Qt.MouseButton.LeftButton:
-            self.click_item(item, event)
-
-    def click_item(self, item, event=None):
-        """Dispatch one item click to the page; returns the opened detail, if any."""
-        page = self.graph_page()
-        if page is None or item is None:
-            return None
-        if isinstance(item, PersonNode):
-            return page.open_person(item, event)
-        if isinstance(item, RelationshipEdge):
-            return page.open_relationship(item, event)
-        return None
-
-
-def graph_page_of(widget):
-    """The GraphPage owning ``widget``, found by walking the parent chain."""
-    while widget is not None and not hasattr(widget, "open_person"):
-        widget = widget.parentWidget()
-    return widget
-
-
-class PersonNode(QGraphicsItem):
-    """One Person = one static node: name, avatar (if any) and relationship count."""
-
-    def __init__(self, person, count, *, avatar=None, deleted=False, diameter=NODE_DIAMETER):
-        super().__init__()
-        self.person = person
-        self.person_id = person.id
-        self.display_name = person.display_name
-        self.count = int(count)
-        self.deleted = bool(deleted)
-        self.avatar = avatar
-        self.diameter = float(diameter)
-        self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-                      | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
-                      | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
-        self.setZValue(2)
-        self.setToolTip(f"{self.display_name} · 关系 {self.count}" + (" · 已归档" if self.deleted else ""))
-
-    @property
-    def radius(self):
-        return self.diameter / 2
-
-    def boundingRect(self):
-        return QRectF(-self.radius - 4, -self.radius - 4, self.diameter + 8, self.diameter + 8)
-
-    def label_text(self):
-        return self.display_name if len(self.display_name) <= 10 else self.display_name[:10] + "…"
-
-    def paint(self, painter, option=None, widget=None):
-        # ``painter is None`` keeps the label/count composition callable in tests.
-        if painter is None:
-            return None
-        painter.setRenderHint(painter.RenderHint.Antialiasing, True)
-        # Node identity uses the Entity layer colour; archived/deleted falls back to
-        # the single archived colour so a deleted node never looks current.
-        body = QColor(COLORS["raised"] if not self.deleted else COLORS["surface"])
-        border = QColor(COLORS["archived"] if self.deleted else COLORS["entity"])
-        painter.setBrush(QBrush(body))
-        painter.setPen(QPen(border, 3 if self.isSelected() else 1))
-        painter.drawEllipse(QRectF(-self.radius, -self.radius, self.diameter, self.diameter))
-        top = -12
-        if self.avatar is not None and not self.avatar.isNull():
-            scaled = self.avatar.scaled(AVATAR_SIZE, AVATAR_SIZE, Qt.AspectRatioMode.KeepAspectRatio,
-                                        Qt.TransformationMode.SmoothTransformation)
-            painter.drawPixmap(int(-scaled.width() / 2), int(-self.radius + 10), scaled)
-            top = 8
-        painter.setPen(QPen(QColor(COLORS["text"])))
-        font = QFont()
-        font.setBold(True)
-        painter.setFont(font)
-        painter.drawText(QRectF(-self.radius + 4, top, self.diameter - 8, 30),
-                         int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop), self.label_text())
-        font.setBold(False)
-        painter.setFont(font)
-        painter.drawText(QRectF(-self.radius + 4, self.radius - 30, self.diameter - 8, 22),
-                         int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom),
-                         f"关系 {self.count}")
-        if self.deleted:
-            painter.drawText(QRectF(-self.radius + 4, self.radius - 52, self.diameter - 8, 20),
-                             int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom), "已归档")
-        return None
-
-    def click(self, event=None):
-        """Click through the owning view (the view outlives every rebuild)."""
-        return self.scene().views()[0].click_item(self, event) if self.scene() else None
-
-
-class RelationshipEdge(QGraphicsPathItem):
-    """One Relationship = one edge: type + current state, arrow when DIRECTED."""
-
-    def __init__(self, view, start, end, *, offset=0.35):
-        super().__init__()
-        self.view = view
-        self.entity = view.relationship
-        self.person_a_id = self.entity.person_a_id
-        self.person_b_id = self.entity.person_b_id
-        self.directed = self.entity.directionality == "DIRECTED"
-        self.deleted = self.entity.deleted_at is not None
-        self.current_state = view.current_state
-        self.path = arc_path(start, end, offset)
-        self.setPath(self.path)
-        self.setZValue(1)
-        self.arrow = None
-        self.label = None
-        self.setPen(relationship_pen(self.current_state, self.deleted, self.directed))
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setToolTip(self.legend_text())
-        if self.directed and start != end:
-            length = math.hypot(end.x() - start.x(), end.y() - start.y())
-            direction = QPointF((end.x() - start.x()) / length, (end.y() - start.y()) / length)
-            self.arrow = QGraphicsPolygonItem(arrow_polygon(end, direction), self)
-            self.arrow.setBrush(QBrush(QColor(DIRECTED_COLOUR)))
-            self.arrow.setPen(QPen(QColor(DIRECTED_COLOUR)))
-            self.arrow.setZValue(1)
-        if start != end:
-            self.label = QGraphicsSimpleTextItem(self.legend_text(), self)
-            self.label.setBrush(QBrush(QColor(COLORS["muted"])))
-            self.label.setPos(edge_label_position(start, end))
-
-    def legend_text(self):
-        parts = [self.entity.relationship_type,
-                 "有向" if self.directed else "无向",
-                 state_label(self.current_state)]
-        if self.deleted:
-            parts.append("已删除")
-        return " · ".join(parts)
-
-    # A thin arc is hard to hit: the clickable shape is widened, never the drawing.
-    def shape(self):
-        stroker = QPainterPathStroker()
-        stroker.setWidth(16)
-        return stroker.createStroke(self.path)
-
-    def connector_ids(self):
-        return (self.person_a_id, self.person_b_id)
-
-    def hoverEnterEvent(self, event):
-        self.setPen(QPen(QColor(COLORS["text"]), 3))
-        super().hoverEnterEvent(event)
-
-    def hoverLeaveEvent(self, event):
-        self.setPen(relationship_pen(self.current_state, self.deleted, self.directed))
-        super().hoverLeaveEvent(event)
-
-    def click(self, event=None):
-        """Click through the owning view (the view outlives every rebuild)."""
-        return self.scene().views()[0].click_item(self, event) if self.scene() else None
 
 
 class GraphPage(ContextPage, QWidget):
@@ -377,6 +119,7 @@ class GraphPage(ContextPage, QWidget):
         body.addWidget(self.filters_panel)
         self.scene = QGraphicsScene(self)
         self.view = GraphView(self.scene, self)
+        self.view.click_handler = self
         body.addWidget(self.view, 1)
         layout.addLayout(body, 1)
         self.status = plain_label()
@@ -553,24 +296,13 @@ class GraphPage(ContextPage, QWidget):
             for view in views:
                 counts[view.person_a.id] = counts.get(view.person_a.id, 0) + 1
                 counts[view.person_b.id] = counts.get(view.person_b.id, 0) + 1
-            for person, position in zip(people, positions):
-                node = PersonNode(person, counts.get(person.id, 0), avatar=self.avatar_for(person),
-                                  deleted=person.deleted_at is not None)
-                node.setPos(position)
+            nodes, edges, layout = build_graph_items(people, counts, views, positions,
+                                                     avatar_for=self.avatar_for)
+            for node in nodes:
                 self.scene.addItem(node)
-                self.nodes.append(node)
-                self.layout[person.id] = position
-            grouped = {}
-            for view in views:
-                key = tuple(sorted((str(view.person_a.id), str(view.person_b.id))))
-                grouped.setdefault(key, []).append(view)
-            for entries in grouped.values():
-                for position, view in enumerate(entries):
-                    first, second = self.layout[view.person_a.id], self.layout[view.person_b.id]
-                    offset = 0.0 if len(entries) == 1 else (position - (len(entries) - 1) / 2) * 0.35
-                    edge = RelationshipEdge(view, first, second, offset=offset)
-                    self.scene.addItem(edge)
-                    self.edges.append(edge)
+            for edge in edges:
+                self.scene.addItem(edge)
+            self.nodes, self.edges, self.layout = nodes, edges, layout
             if not people:
                 self.status.setText("当前 Workspace 没有可显示的人物：请先创建人物。未生成演示数据。")
             else:
@@ -655,6 +387,5 @@ class GraphPage(ContextPage, QWidget):
         return node
 
 
-__all__ = ["GraphPage", "GraphView", "PersonNode", "RelationshipEdge", "ALL_TYPES", "arc_path",
-           "arrow_polygon", "circular_positions", "edge_label_position", "graph_page_of",
-           "relationship_pen", "state_label", "run_operation"]
+__all__ = ["ALL_TYPES", "GraphPage", "GraphView", "PersonNode", "RelationshipEdge",
+           "run_operation"]

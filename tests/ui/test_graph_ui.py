@@ -12,7 +12,7 @@ from sqlalchemy import inspect, text
 
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsView, QMessageBox
 
 from app.config.settings import AppConfig
 from app.services.application import create_application_services
@@ -267,11 +267,11 @@ def test_node_is_movable_and_view_zooms(graph_ui):
     c = graph_ui
     page = c.page
     node = page.node_for_person(c.people["ALPHA"].id)
-    assert node.flags() & module.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+    assert node.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
     before = node.pos()
     node.setPos(before + QPointF(40, -25))
     assert node.pos() == before + QPointF(40, -25)
-    assert page.view.dragMode() == module.QGraphicsView.DragMode.ScrollHandDrag
+    assert page.view.dragMode() == QGraphicsView.DragMode.ScrollHandDrag
     assert page.view.zoom_by(1.15) > 1.0
     assert page.view.reset_zoom() == 1.0
     assert page.view.zoom_by(100.0) == 1.0        # clamped, never lost
@@ -298,7 +298,7 @@ def test_mouse_press_on_scene_items_reaches_the_click_handlers(graph_ui):
                         Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
                         Qt.KeyboardModifier.NoModifier)
     page.scene.sendEvent(node, press)
-    assert node.flags() & module.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+    assert node.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
     release = QMouseEvent(QEvent.Type.MouseButtonRelease, center, page.view.viewport().mapToGlobal(center),
                           Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton,
                           Qt.KeyboardModifier.NoModifier)

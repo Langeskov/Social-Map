@@ -150,12 +150,14 @@ class HistoryDialog(QDialog):
         layout.addWidget(close)
 
 class RelationshipPanel(QWidget):
-    def __init__(self, services, parent=None):
+    def __init__(self, services, parent=None, *, dialog_pool=None):
         super().__init__(parent)
         self.services = services
         self.service = getattr(services, "relationships", None)
         self.workspace_id = self.person_id = None
-        self._dialogs = []
+        #: Non-modal detail windows; a caller (the page) may own the pool so a
+        #: Workspace reset can close them together with its own dialogs.
+        self._dialogs = dialog_pool if dialog_pool is not None else []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 12, 0, 0)
         layout.addWidget(QLabel("Relationships · 关系（身份不可编辑）"))

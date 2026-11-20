@@ -15,21 +15,20 @@ the widget never invents a second soft-delete rule.
 
 Fact / observation separation is preserved: an Event opens the real Event detail
 (with its Evidence panel); a state change opens a read-only Relationship detail.
+
+Refresh cost is bounded: the rendered rows get their Event details from one
+batch listing and their relationship states from one batch listing - never one
+query per row.
 """
-import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html import escape
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QHBoxLayout, QLabel, QPushButton, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from app.domain.errors import DomainError
-from app.services.errors import DatabaseError
 from app.ui.event_detail import EventDetailDialog, plain_label, table, time_text, ROLE
-
-logger = logging.getLogger(__name__)
 
 MODE_PERSON = "PERSON"
 MODE_WORKSPACE = "WORKSPACE"
@@ -166,7 +165,12 @@ class RelationshipDetailDialog(QDialog):
 
 
 class TimelinePanel(QWidget):
-    def __init__(self, services, parent=None):
+    #: The selected ``TimelineRow`` (or None). Fired for user selection only:
+    #: the automatic row selection inside ``refresh`` stays signal-blocked, so
+    #: switching person clears the inspector instead of auto-filling it.
+    row_selected = Signal(object)
+
+    def __init__(self, services, parent=None, *, dialog_pool=None):
         super().__init__(parent)
         self.services = services
         self.service = getattr(services, "timeline", None)
@@ -174,7 +178,9 @@ class TimelinePanel(QWidget):
         self.mode = MODE_WORKSPACE
         self._rows = []
         self._people = {}
-        self._dialogs = []
+        #: Non-modal detail windows; a caller (the page) may own the pool so a
+        #: Workspace reset can close them together with its own dialogs.
+        self._dialogs = dialog_pool if dialog_pool is not None else []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 12, 0, 0)
         self.heading = plain_label("Timeline · 完整时间线（Event + 关系状态变更，事实 / 观察）")
@@ -218,7 +224,8 @@ class TimelinePanel(QWidget):
         layout.addWidget(self.include_deleted)
         self.table = table(HEADERS, "personTimeline")
         self.table.setMinimumHeight(240)
-        self.table.itemSelectionChanged.connect(self.update_buttons)
+        self.table.itemSelectionChanged.connect(self._selection_changed)
+        self.table.itemClicked.connect(lambda _: self.row_selected.emit(self.selected_row()))
         self.table.itemDoubleClicked.connect(self.open_selected)
         layout.addWidget(self.table)
         row = QHBoxLayout()
@@ -291,6 +298,10 @@ class TimelinePanel(QWidget):
         """Historic EventTimeline contract: the selected row, or ``None``."""
         return self.selected_row()
 
+    def _selection_changed(self):
+        self.update_buttons()
+        self.row_selected.emit(self.selected_row())
+
     def update_buttons(self):
         available = self.service is not None and (
             self.workspace_id is not None and (self.mode == MODE_WORKSPACE or self.person_id is not None))
@@ -337,16 +348,20 @@ class TimelinePanel(QWidget):
                                                                     include_deleted=True)}
             self._fill_person_filter()
             items = [item for item in items if self.row_passes(item)]
+            # Batch reads replace the historic per-row queries: one Event listing
+            # and one Relationship listing per refresh, never one query per row.
+            event_details = self._batch_event_details(items)
+            relationship_views = self._batch_relationship_views(items)
             self.table.blockSignals(True)
             try:
                 self.table.setRowCount(0)
                 target = -1
                 for index, item in enumerate(items):
-                    event = self._event_detail(item)
+                    event = event_details.get(item.event_id) if item.event_id is not None else None
                     self._rows.append(TimelineRow(item=item, event=event))
                     values = [time_text(item.timestamp), self.kind_label(item.kind), item.title,
                               summary_text(item.summary), person_names(item.person_ids, self._people),
-                              self._state_column(item), self.period_of(item)]
+                              self._state_column(item, relationship_views), self.period_of(item)]
                     row = self.table.rowCount()
                     self.table.insertRow(row)
                     payload = self._rows[-1]
@@ -405,22 +420,35 @@ class TimelinePanel(QWidget):
             return False
         return True
 
-    def _event_detail(self, item):
-        if item.event_id is None or getattr(self.services, "events", None) is None:
-            return None
-        return self.services.events.detail(self.workspace_id, item.event_id, include_deleted=True)
+    def _batch_event_details(self, items):
+        """One batch read covering every Event the rendered rows reference.
 
-    def _state_column(self, item):
+        Replaces one ``events.detail`` call per row. Deleted rows are included:
+        the panel lists them when asked, and the historic row payload carried
+        their details too.
+        """
+        wanted = {item.event_id for item in items if item.event_id is not None}
+        if not wanted or getattr(self.services, "events", None) is None:
+            return {}
+        details = {detail.event.id: detail for detail in
+                   self.services.events.list_events(self.workspace_id, "", include_deleted=True)}
+        return {event_id: details[event_id] for event_id in wanted if event_id in details}
+
+    def _batch_relationship_views(self, items):
+        """One batch read of the current Relationship state per rendered row."""
+        wanted = {item.relationship_id for item in items if item.relationship_id is not None}
+        if not wanted or getattr(self.services, "relationships", None) is None:
+            return {}
+        views = {view.relationship.id: view for view in
+                 self.services.relationships.list_by_workspace(self.workspace_id, include_deleted=True)}
+        return {relationship_id: views[relationship_id]
+                for relationship_id in wanted if relationship_id in views}
+
+    def _state_column(self, item, views=None):
         if item.kind == "RELATIONSHIP_CHANGE":
-            if item.relationship_id is None:
+            if item.relationship_id is None or not views or item.relationship_id not in views:
                 return "—"
-            try:
-                view = self.services.relationships.current(self.workspace_id, item.relationship_id,
-                                                           include_deleted=True)
-            except (DomainError, DatabaseError, ValueError) as exc:
-                logger.warning("Timeline relationship state unavailable: type=%s", type(exc).__name__)
-                return "—"
-            return state_text(view.current_state)
+            return state_text(views[item.relationship_id].current_state)
         linked = " · 已关联关系历史" if item.relationship_id is not None else ""
         return "事件" + linked
 

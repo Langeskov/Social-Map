@@ -330,7 +330,10 @@ class EvidencePanel(QWidget):
 
         def show():
             current = self.service.detail(self.workspace_id, detail.evidence.id, include_deleted=True)
-            dialog = EvidenceDetailDialog(current, lambda text: self.save_annotation(current, text), self)
+            event = getattr(self, "current_event", None)
+            owner_text = f"{event.title} · {str(event.id)[:8]}…" if event is not None else None
+            dialog = EvidenceDetailDialog(current, lambda text: self.save_annotation(current, text), self,
+                                          owner_text=owner_text)
             dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
             self._dialogs.append(dialog)
             dialog.finished.connect(lambda _: self._dialogs.remove(dialog) if dialog in self._dialogs else None)

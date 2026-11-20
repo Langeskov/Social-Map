@@ -6,6 +6,10 @@ annotation are callbacks owned by the Evidence panel, so one operation boundary
 editable anywhere in this module: ``title`` and ``annotation``. ``content_text``,
 ``kind``, ``source_type``, ``source_label``, ``source_reference`` and
 ``captured_at`` are rendered with plain read-only controls and have no editor.
+
+``EvidenceReader`` holds the shared FACT / USER rendering (raw evidence above,
+user annotation below) used by both the detail dialog and the investigation
+workspace inspector, so the separation exists exactly once.
 """
 from datetime import datetime, timezone
 from pathlib import Path
@@ -357,18 +361,22 @@ class EvidenceMetadataDialog(QDialog):
         super().accept()
 
 
-class EvidenceDetailDialog(QDialog):
-    """Raw evidence (read-only) is visually separated from the user annotation."""
+class EvidenceReader(QWidget):
+    """Raw evidence (read-only, FACT) above the user annotation (USER, editable).
 
-    def __init__(self, detail, save_annotation=None, parent=None):
+    Shared by the Evidence detail dialog and the investigation workspace
+    inspector. It renders nothing that the data model does not have: no chat
+    bubbles, no invented sender or timestamp. No persistence lives here; saving
+    the annotation goes through ``save_callback`` (the owning panel's boundary).
+    """
+
+    def __init__(self, parent=None, *, save_annotation=None):
         super().__init__(parent)
-        self.setWindowTitle("Evidence Detail · 证据详情（原始内容只读）")
-        # Ctrl+S saves the annotation and closes; the raw evidence still cannot change.
-        install_save_shortcut(self, lambda: (self.save_annotation(), self.accept()))
-        self.resize(900, 780)
-        self.detail = detail
+        self.setObjectName("evidenceReader")
         self.save_callback = save_annotation
+        self.detail = None
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         # Two visually separated sections: raw evidence is read-only, only the
         # user annotation below it can be edited.
         raw = QGroupBox("一、原始证据 · 只读（content_text、来源、captured_at、created_at、附件不可修改）")
@@ -396,6 +404,17 @@ class EvidenceDetailDialog(QDialog):
         self.content.setReadOnly(True)
         self.content.setMinimumHeight(130)
         raw_layout.addWidget(self.content)
+        # The owning Event stays visible: Evidence only exists through its Event.
+        owner_row = QHBoxLayout()
+        owner_row.addWidget(plain_label("所属事件"))
+        self.owner_label = plain_label("—")
+        self.owner_label.setObjectName("evidenceOwnerEvent")
+        owner_row.addWidget(self.owner_label, 1)
+        self.open_owner_button = QPushButton("打开所属事件")
+        self.open_owner_button.setObjectName("evidenceOpenOwner")
+        self.open_owner_button.setVisible(False)
+        owner_row.addWidget(self.open_owner_button)
+        raw_layout.addLayout(owner_row)
         raw_layout.addWidget(plain_label("附件引用（只读；添加或移除请在 Evidence 面板中操作）"))
         self.attachments = make_attachment_table("evidenceDetailAttachments")
         self.attachments.setMinimumHeight(140)
@@ -422,16 +441,22 @@ class EvidenceDetailDialog(QDialog):
         row.addStretch(1)
         note_layout.addLayout(row)
         layout.addWidget(note)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-        self.set_detail(detail)
 
-    def set_detail(self, detail):
+    def set_open_owner(self, callback):
+        """Wire the ``打开所属事件`` button (inspector jump) and show it."""
+        self.open_owner_button.clicked.connect(callback)
+        self.open_owner_button.setVisible(callback is not None)
+
+    def set_detail(self, detail, *, owner_text=None):
         self.detail = detail
-        evidence = detail.evidence
         for label in self.fields.values():
             label.setText("—")
+        if detail is None:
+            self.content.clear()
+            self.annotation.clear()
+            self.attachments.setRowCount(0)
+            return None
+        evidence = detail.evidence
         self.fields["kind"].setText(evidence.kind)
         self.fields["source_type"].setText(evidence.source_type)
         self.fields["source_label"].setText(evidence.source_label or "—")
@@ -442,7 +467,52 @@ class EvidenceDetailDialog(QDialog):
         self.fields["lifecycle"].setText("已删除" if evidence.deleted_at else "有效记录")
         self.content.setPlainText(evidence.content_text or "")
         self.annotation.setPlainText(evidence.annotation or "")
+        if owner_text is not None:
+            self.owner_label.setText(owner_text)
         fill_attachment_table(self.attachments, detail.media)
+        return detail
+
+    def clear(self):
+        self.owner_label.setText("—")
+        return self.set_detail(None)
+
+    def save_annotation(self):
+        if self.save_callback is None:
+            return None
+        updated = self.save_callback(self.annotation.toPlainText())
+        if updated is not None:
+            self.set_detail(updated)
+        return updated
+
+
+class EvidenceDetailDialog(QDialog):
+    """Raw evidence (read-only) is visually separated from the user annotation."""
+
+    def __init__(self, detail, save_annotation=None, parent=None, *, owner_text=None):
+        super().__init__(parent)
+        self.setWindowTitle("Evidence Detail · 证据详情（原始内容只读）")
+        # Ctrl+S saves the annotation and closes; the raw evidence still cannot change.
+        install_save_shortcut(self, lambda: (self.save_annotation(), self.accept()))
+        self.resize(900, 780)
+        self.detail = detail
+        self.save_callback = save_annotation
+        layout = QVBoxLayout(self)
+        self.reader = EvidenceReader(self, save_annotation=save_annotation)
+        layout.addWidget(self.reader)
+        # Historic attribute surface: callers and tests address the dialog.
+        self.fields = self.reader.fields
+        self.content = self.reader.content
+        self.annotation = self.reader.annotation
+        self.attachments = self.reader.attachments
+        self.save_button = self.reader.save_button
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.set_detail(detail, owner_text=owner_text)
+
+    def set_detail(self, detail, *, owner_text=None):
+        self.detail = detail
+        return self.reader.set_detail(detail, owner_text=owner_text)
 
     def save_annotation(self):
         if self.save_callback is None:

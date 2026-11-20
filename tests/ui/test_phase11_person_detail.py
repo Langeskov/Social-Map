@@ -66,7 +66,7 @@ def test_detail_follows_the_layer_chain(case):
     # The inspector tabs keep the layer chain: Link -> Occurrence -> Proof
     # -> User memory -> Inference (Phase 12 workspace order).
     assert [title.split(" · ")[0] for title in titles] == [
-        "关系", "时间线", "Evidence", "Memory", "Analysis"]
+        "关系", "Activity", "Evidence", "Memory", "Analysis"]
     # One Timeline only: the duplicate Event-only widget is gone (option c).
     assert not hasattr(page, "event_timeline")
 

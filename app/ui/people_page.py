@@ -30,7 +30,8 @@ from app.ui.operations import run_operation as _run_operation
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
     QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
-    QPushButton, QScrollArea, QSplitter, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
+    QPushButton, QScrollArea, QSplitter, QStackedWidget, QTabWidget, QTableWidgetItem, QTextEdit,
+    QVBoxLayout, QWidget)
 from app.domain.errors import DomainError, NotFoundError
 from app.services.errors import DatabaseError
 from app.ui.analysis_dialog import ANALYZE_LABELS, analysis_center
@@ -38,13 +39,15 @@ from app.ui.context import ContextPage
 from app.ui.design.fonts import mono_font
 from app.ui.design.tokens import SPACE
 from app.ui.design.widgets import LayerCard, StatusPill
+from app.ui.event_detail import EventDetailView, table, time_text
+from app.ui.evidence_dialog import EvidenceReader
 from app.ui.person_dialog import AliasDialog, FIELD_LABELS, IMAGE_FILTER, PersonDialog
 from app.ui.image_viewer import ImageViewer
 from app.ui.graph_canvas import (GraphClicks, GraphView, build_graph_items, ego_positions)
 from app.ui.relationship_panel import RelationshipPanel
 from app.ui.memory_panel import MemoryPanel, MemoryWorkspaceDialog
 from app.ui.search_panel import SearchPanel
-from app.ui.timeline_panel import MODE_PERSON, RelationshipDetailDialog, TimelinePanel
+from app.ui.timeline_panel import (MODE_PERSON, RelationshipDetailDialog, TimelinePanel, state_text)
 from PySide6.QtWidgets import QGraphicsScene
 
 logger = logging.getLogger(__name__)
@@ -265,6 +268,9 @@ class PeoplePage(ContextPage, QWidget):
         self.ego_nodes = []
         self.ego_edges = []
         self.ego_layout = {}
+        self._inspected_event_row = None
+        self._inspected_relationship_id = None
+        self._evidence_events = {}
         self.center_splitter.addWidget(self.ego_card)
         self.center_splitter.setSizes([340, 260])
         self.inner_split.addWidget(self.center_splitter)
@@ -273,37 +279,101 @@ class PeoplePage(ContextPage, QWidget):
         self.detail_tabs.setObjectName("personDetailTabs")
         # LINK: relationship management (the canvas only visualises; writes live here).
         relationships = LayerCard("LINK", "Relationships · 关系", self.detail_tabs)
-        self.relationship_panel = RelationshipPanel(services, self)
+        self.relationship_panel = RelationshipPanel(services, self, dialog_pool=self._dialogs)
         relationships.body.addWidget(self.relationship_panel)
         self.relationships_card = relationships
         self.detail_tabs.addTab(relationships, "关系 · Relationships")
-        # OCCURRENCE: the complete person timeline (Events + relationship changes).
+        # OCCURRENCE: the complete person timeline (Events + relationship changes)
+        # and, below it, the selection-driven Activity inspector: an Event detail
+        # or a Relationship detail for the selected row.
+        activity_tab = QWidget()
+        activity_split = QSplitter(Qt.Orientation.Vertical, activity_tab)
         timeline_card = LayerCard("OCCURRENCE", "Timeline · 时间线（Event + 关系状态变更）",
-                                  self.detail_tabs)
+                                  activity_split)
         timeline_card.setObjectName("peopleTimelineGroup")
-        self.full_timeline = TimelinePanel(services, self)
+        self.full_timeline = TimelinePanel(services, self, dialog_pool=self._dialogs)
         self.full_timeline.mode = MODE_PERSON
         self.full_timeline.mode_combo.setCurrentIndex(
             max(0, self.full_timeline.mode_combo.findData(MODE_PERSON)))
         self.full_timeline.mode_combo.hide()
         timeline_card.body.addWidget(self.full_timeline)
         self.timeline_card = timeline_card
-        self.detail_tabs.addTab(timeline_card, "时间线 · Timeline")
+        activity_split.addWidget(timeline_card)
+        self.activity_inspector = QStackedWidget()
+        self.activity_inspector.setObjectName("activityInspector")
+        self.activity_inspector_empty = plain_label(
+            "在上方时间线中选择一条记录：事件显示为事件详情，关系变更显示为关系详情。")
+        self.activity_inspector_empty.setObjectName("activityInspectorEmpty")
+        self.activity_inspector.addWidget(self.activity_inspector_empty)
+        # --- Event Inspector (read-only view of the selected Event) ---
+        event_page = QWidget()
+        event_column = QVBoxLayout(event_page)
+        event_column.setContentsMargins(0, 0, 0, 0)
+        self.event_inspector = EventDetailView(event_page)
+        self.event_inspector.setObjectName("eventInspector")
+        event_column.addWidget(self.event_inspector)
+        event_row = QHBoxLayout()
+        self.event_evidence_button = self.button(event_row, "查看该事件的证据 →",
+                                                 self._show_inspected_event_evidence)
+        self.event_open_button = self.button(event_row, "打开完整事件详情",
+                                             self._open_inspected_event)
+        event_row.addStretch(1)
+        event_column.addLayout(event_row)
+        self.event_inspector_page = event_page
+        self.activity_inspector.addWidget(event_page)
+        # --- Relationship Detail (read-only view of the selected change) ---
+        relationship_page = QWidget()
+        relationship_page.setObjectName("relationshipInspector")
+        relationship_column = QVBoxLayout(relationship_page)
+        relationship_column.setContentsMargins(0, 0, 0, 0)
+        relationship_column.addWidget(plain_label(
+            "Relationship Detail · 关系详情（只读，数据来自关系服务；不显示任何推断或评分）"))
+        self.rel_fields = {}
+        rel_form = QFormLayout()
+        for key, label in [("relationship_type", "关系类型"), ("directionality", "方向"),
+                           ("endpoint_a", "端点 A"), ("endpoint_b", "端点 B"),
+                           ("current_state", "当前状态"), ("effective_at", "当前状态生效 UTC"),
+                           ("change_note", "本次变更备注"), ("lifecycle", "记录情况")]:
+            self.rel_fields[key] = plain_label("—")
+            rel_form.addRow(label, self.rel_fields[key])
+        relationship_column.addLayout(rel_form)
+        relationship_column.addWidget(QLabel("Relationship History · 状态历史（只读，只追加）"))
+        self.rel_history = table(["生效时间 UTC", "状态", "备注", "写入时间 UTC", "History UUID"],
+                                 "inspectorRelationshipHistory")
+        self.rel_history.setMinimumHeight(110)
+        relationship_column.addWidget(self.rel_history)
+        rel_row = QHBoxLayout()
+        self.rel_open_button = self.button(rel_row, "打开关系详情窗口", self._open_inspected_relationship)
+        rel_row.addStretch(1)
+        relationship_column.addLayout(rel_row)
+        self.relationship_inspector_page = relationship_page
+        self.activity_inspector.addWidget(relationship_page)
+        activity_split.addWidget(self.activity_inspector)
+        activity_split.setSizes([300, 260])
+        self.full_timeline.row_selected.connect(self._on_activity_row_selected)
+        self.detail_tabs.addTab(activity_tab, "Activity · 时间线")
         # PROOF: Evidence of the Events this person took part in (via Event only).
-        evidence_tab = QWidget()
-        evidence_column = QVBoxLayout(evidence_tab)
-        evidence_column.setContentsMargins(0, 0, 0, 0)
-        evidence_card = LayerCard("PROOF", "Evidence · 与该人物事件相关的原始证据", evidence_tab)
+        # Master list over a shared reader: raw content stays read-only FACT and
+        # the annotation is the only editable USER part.
+        self.evidence_tab = QWidget()
+        evidence_split = QSplitter(Qt.Orientation.Vertical, self.evidence_tab)
+        evidence_card = LayerCard("PROOF", "Evidence · 与该人物事件相关的原始证据", evidence_split)
         self.evidence_list = QListWidget()
         self.evidence_list.setObjectName("personEvidenceList")
         self.evidence_list.setMinimumHeight(150)
+        self.evidence_list.itemSelectionChanged.connect(self._on_evidence_selected)
         self.evidence_list.itemDoubleClicked.connect(lambda _: self.open_person_evidence())
         evidence_card.body.addWidget(self.evidence_list)
         self.evidence_status = plain_label("尚未选择人物。")
         self.evidence_status.setObjectName("personEvidenceStatus")
         evidence_card.body.addWidget(self.evidence_status)
-        evidence_column.addWidget(evidence_card)
-        self.detail_tabs.addTab(evidence_tab, "Evidence · 证据")
+        evidence_split.addWidget(evidence_card)
+        self.evidence_reader = EvidenceReader(evidence_split,
+                                              save_annotation=self._save_reader_annotation)
+        self.evidence_reader.set_open_owner(self._open_reader_owner)
+        evidence_split.addWidget(self.evidence_reader)
+        evidence_split.setSizes([220, 320])
+        self.detail_tabs.addTab(self.evidence_tab, "Evidence · 证据")
         # USER: user-confirmed memory has its own tab (never a fact).
         memory_tab = QWidget()
         memory_column = QVBoxLayout(memory_tab)
@@ -532,9 +602,17 @@ class PeoplePage(ContextPage, QWidget):
         self.memory_panel.set_person(None, None)
         self.clear_ego()
         self.detail_tabs.setCurrentIndex(0)
+        self.activity_inspector.setCurrentWidget(self.activity_inspector_empty)
+        self._inspected_event_row = None
+        self._inspected_relationship_id = None
+        for label in self.rel_fields.values():
+            label.setText("—")
+        self.rel_history.setRowCount(0)
+        self._evidence_events = {}
         self.alias_list.clear()
         self.image_list.clear()
         self.evidence_list.clear()
+        self.evidence_reader.clear()
         self.analysis_list.clear()
         self.avatar.clear()
         self.avatar.setText("未设置头像")
@@ -771,10 +849,153 @@ class PeoplePage(ContextPage, QWidget):
             return None
         return self.open_relationship(relationship_id)
 
+    # ----------------------------------------------- activity / evidence inspector
+
+    def _on_activity_row_selected(self, row):
+        """A user selection in the timeline drives the inspector.
+
+        The automatic row selection inside ``TimelinePanel.refresh`` stays
+        signal-blocked, so switching person clears the inspector instead of
+        auto-filling it with the newest row.
+        """
+        if row is None:
+            self.activity_inspector.setCurrentWidget(self.activity_inspector_empty)
+            return None
+        if row.item.kind == "RELATIONSHIP_CHANGE":
+            if row.item.relationship_id is None:
+                self.activity_inspector.setCurrentWidget(self.activity_inspector_empty)
+                return None
+            return self._inspect_relationship(row)
+        return self._inspect_event(row)
+
+    def _inspect_event(self, row):
+        """Event Inspector: the selected Event as a read-only detail."""
+        detail = row.event
+        if detail is None:
+            self.activity_inspector.setCurrentWidget(self.activity_inspector_empty)
+            return None
+        self._inspected_event_row = row
+        self._inspected_relationship_id = None
+        self.event_inspector.set_detail(detail)
+        self.activity_inspector.setCurrentWidget(self.event_inspector_page)
+        return detail
+
+    def _inspect_relationship(self, row):
+        """Relationship Detail for the selected state change (read-only, on demand)."""
+        relationship_id = row.item.relationship_id
+        self._inspected_relationship_id = relationship_id
+        self._inspected_event_row = None
+
+        def load():
+            view = self.services.relationships.current(self.workspace_id, relationship_id,
+                                                       include_deleted=True)
+            entries = self.services.relationships.history(self.workspace_id, relationship_id,
+                                                          include_deleted=True)
+            entity = view.relationship
+            self.rel_fields["relationship_type"].setText(entity.relationship_type)
+            self.rel_fields["directionality"].setText(
+                "DIRECTED · 有向（A → B）" if entity.directionality == "DIRECTED"
+                else "UNDIRECTED · 无向")
+            self.rel_fields["endpoint_a"].setText(f"{view.person_a.display_name} · {view.person_a.id}")
+            self.rel_fields["endpoint_b"].setText(f"{view.person_b.display_name} · {view.person_b.id}")
+            self.rel_fields["current_state"].setText(state_text(view.current_state))
+            self.rel_fields["effective_at"].setText(
+                time_text(view.current_history.effective_at) if view.current_history is not None else "—")
+            self.rel_fields["change_note"].setText(row.item.summary or "—")
+            lifecycle = "已删除" if entity.deleted_at is not None else "有效记录"
+            if not view.endpoints_active:
+                lifecycle += " · 端点已归档"
+            self.rel_fields["lifecycle"].setText(lifecycle)
+            self.rel_history.setRowCount(0)
+            for entry in entries:
+                history_row = self.rel_history.rowCount()
+                self.rel_history.insertRow(history_row)
+                for column, value in enumerate([time_text(entry.effective_at), state_text(entry.state),
+                                                entry.note or "", time_text(entry.created_at),
+                                                str(entry.id)]):
+                    self.rel_history.setItem(history_row, column, QTableWidgetItem(value))
+            self.activity_inspector.setCurrentWidget(self.relationship_inspector_page)
+            return view
+        return self.run_operation(load)
+
+    def _show_inspected_event_evidence(self):
+        """Event Inspector -> Evidence: the jump step of the investigation path."""
+        row = self._inspected_event_row
+        if row is None or row.item.event_id is None:
+            return None
+        self.detail_tabs.setCurrentWidget(self.evidence_tab)
+        return self._preselect_event_evidence(row.item.event_id)
+
+    def _open_inspected_event(self):
+        """Full Event detail dialog (edit / participants / history / evidence actions)."""
+        row = self._inspected_event_row
+        if row is None:
+            return None
+        return self.full_timeline.show_event(row)
+
+    def _open_inspected_relationship(self):
+        """Full read-only Relationship detail dialog (shared jump target)."""
+        relationship_id = self._inspected_relationship_id
+        if relationship_id is None:
+            return None
+        return self.open_relationship(relationship_id)
+
+    def _preselect_event_evidence(self, event_id):
+        """Select the first evidence row belonging to ``event_id`` (if listed)."""
+        for index in range(self.evidence_list.count()):
+            item = self.evidence_list.item(index)
+            payload = item.data(ROLE)
+            if payload is not None and payload[0] == event_id:
+                self.evidence_list.setCurrentRow(index)
+                return True
+        return False
+
+    def _on_evidence_selected(self):
+        """Evidence reader: fill on selection (one detail read, nothing copied)."""
+        item = self.evidence_list.currentItem()
+        if item is None:
+            self.evidence_reader.clear()
+            return None
+        event_id, evidence_id = item.data(ROLE)
+
+        def load():
+            detail = self.services.evidence.detail(self.workspace_id, evidence_id,
+                                                   include_deleted=True)
+            event = self._evidence_events.get(event_id)
+            owner = f"{event.title} · {self.short_uuid(event.id)}" if event is not None else None
+            self.evidence_reader.set_detail(detail, owner_text=owner)
+            return detail
+        return self.run_operation(load)
+
+    def _save_reader_annotation(self, text):
+        """Reader annotation save: only ``annotation`` is written (Service rule)."""
+        detail = getattr(self.evidence_reader, "detail", None)
+        if detail is None:
+            return None
+
+        def save():
+            self.services.evidence.update_metadata(self.workspace_id, detail.evidence.id,
+                                                   annotation=text.strip() or None)
+            return self.services.evidence.detail(self.workspace_id, detail.evidence.id,
+                                                 include_deleted=True)
+        return self.run_operation(save)
+
+    def _open_reader_owner(self):
+        """Reader -> owning Event: Evidence is always traceable to its Event."""
+        detail = getattr(self.evidence_reader, "detail", None)
+        if detail is None:
+            return None
+        event_id = detail.evidence.event_id
+        self.navigate_requested.emit("event", event_id)
+        return event_id
+
     # ------------------------------------------- Evidence / Analysis per person
     def reload_person_evidence(self, person_id):
         """Evidence of the Events this person took part in (read-only projection)."""
+        self.evidence_list.blockSignals(True)
         self.evidence_list.clear()
+        self.evidence_list.blockSignals(False)
+        self._evidence_events = {}
         service = getattr(self.services, "evidence", None)
         events = getattr(self.services, "events", None)
         if service is None or events is None:
@@ -790,6 +1011,7 @@ class PeoplePage(ContextPage, QWidget):
                 found.append((detail.event, evidence.evidence))
         found.sort(key=lambda pair: pair[1].captured_at or pair[1].created_at, reverse=True)
         for event, evidence in found:
+            self._evidence_events[event.id] = event
             entry = QListWidgetItem(f"{evidence.title} · {evidence.kind}")
             entry.setData(ROLE, (event.id, evidence.id))
             entry.setToolTip(f"事件：{event.title}")

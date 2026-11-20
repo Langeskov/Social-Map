@@ -359,7 +359,8 @@ class TimelinePanel(QWidget):
                 for index, item in enumerate(items):
                     event = event_details.get(item.event_id) if item.event_id is not None else None
                     self._rows.append(TimelineRow(item=item, event=event))
-                    values = [time_text(item.timestamp), self.kind_label(item.kind), item.title,
+                    values = [time_text(item.timestamp), self.kind_label(item.kind),
+                              self._title_cell(item, event, relationship_views),
                               summary_text(item.summary), person_names(item.person_ids, self._people),
                               self._state_column(item, relationship_views), self.period_of(item)]
                     row = self.table.rowCount()
@@ -451,6 +452,17 @@ class TimelinePanel(QWidget):
             return state_text(views[item.relationship_id].current_state)
         linked = " · 已关联关系历史" if item.relationship_id is not None else ""
         return "事件" + linked
+
+    @staticmethod
+    def _title_cell(item, event_detail=None, views=None):
+        """The title cell carries the record status (Phase 12.2): a deleted
+        record is marked the same way the Evidence list marks one."""
+        if item.kind == "RELATIONSHIP_CHANGE":
+            view = views.get(item.relationship_id) if (views and item.relationship_id) else None
+            deleted = bool(view is not None and view.relationship.deleted_at is not None)
+        else:
+            deleted = bool(event_detail is not None and event_detail.event.deleted_at is not None)
+        return ("已删除 · " + item.title) if deleted else item.title
 
     # ---------------------------------------------------------------- navigation
 

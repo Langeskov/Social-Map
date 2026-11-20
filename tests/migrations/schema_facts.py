@@ -27,8 +27,6 @@ assertions stay exactly as strict as they were before Phases 7, 8 and 9.
 """
 from datetime import datetime, timezone
 
-from app.storage.database import load_models
-
 NOW = datetime(2026, 3, 4, 12, 34, 56, 123456, tzinfo=timezone.utc)
 
 PHASE3_TABLES = {"workspace", "person", "person_alias", "media", "person_media"}

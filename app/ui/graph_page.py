@@ -28,7 +28,7 @@ from PySide6.QtGui import (QBrush, QColor, QFont, QPainterPath, QPainterPathStro
     QPolygonF, QTransform)
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGraphicsItem, QGraphicsPathItem,
     QGraphicsPolygonItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView, QHBoxLayout, QLabel,
-    QMessageBox, QPushButton, QVBoxLayout, QWidget)
+    QPushButton, QVBoxLayout, QWidget)
 
 from app.domain.entities import Person
 from app.domain.errors import DomainError

@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from app.ui.operations import run_operation as _run_operation
 from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QGroupBox,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
     QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
     QPushButton, QScrollArea, QSplitter, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 from app.domain.errors import DomainError, NotFoundError
@@ -21,7 +21,7 @@ from app.ui.image_viewer import ImageViewer
 from app.ui.relationship_panel import RelationshipPanel
 from app.ui.memory_panel import MemoryPanel, MemoryWorkspaceDialog
 from app.ui.search_panel import SearchPanel
-from app.ui.timeline_panel import MODE_PERSON, MODE_WORKSPACE, RelationshipDetailDialog, TimelinePanel
+from app.ui.timeline_panel import MODE_PERSON, RelationshipDetailDialog, TimelinePanel
 
 logger = logging.getLogger(__name__)
 ROLE = Qt.ItemDataRole.UserRole

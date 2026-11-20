@@ -320,7 +320,3 @@ def sync_evidence(session, evidence: Evidence) -> None:
     event = snapshot(Event, event_model) if event_model is not None else None
     _sync(session, [evidence_document(evidence, event)])
 
-
-def remove_evidence(session, workspace_id: UUID, evidence_id: UUID) -> None:
-    SearchProjectionStore(session).remove(workspace_id, "EVIDENCE", evidence_id)
-

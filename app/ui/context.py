@@ -17,8 +17,6 @@ import logging
 
 from PySide6.QtCore import QObject, Signal
 
-from app.domain.errors import DomainError
-
 logger = logging.getLogger(__name__)
 
 
@@ -194,19 +192,3 @@ def hide_duplicate_workspace_controls(page) -> None:
     for label in parent.findChildren(QLabel):
         if label.text().startswith("当前 Workspace"):
             label.setVisible(False)
-
-
-def request_switch(context, workspace_id, *, page=None) -> bool:
-    """Switch through the context when bound, else fall back to the page itself."""
-    if context is not None:
-        return context.set_workspace(workspace_id)
-    if page is not None and hasattr(page, "apply_workspace"):
-        page.apply_workspace(workspace_id)
-        return True
-    return False
-
-
-def known_failure(exc: BaseException) -> bool:
-    """True when the message is written for the user (never logged with content)."""
-    from app.storage.database import DatabaseError
-    return isinstance(exc, (DomainError, DatabaseError, OSError, ValueError))

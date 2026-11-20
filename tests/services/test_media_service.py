@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 import hashlib
 import logging
 import multiprocessing
-from pathlib import Path
 from threading import Barrier, Lock, get_ident
 
 import pytest
@@ -23,7 +22,6 @@ from app.config.settings import AppConfig
 from app.domain.errors import ConflictError, DomainError, MediaValidationError
 from app.services.application import create_application_services
 from app.services.database import initialize_database
-from app.services.media import MediaService
 from app.services.repositories import sql_repositories
 from app.services.unit_of_work import transaction
 from app.storage.models import MediaModel, PersonMediaModel, PersonModel

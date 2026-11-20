@@ -157,9 +157,6 @@ class MediaPicker(QWidget):
             self.reload(selected_id=media.id)
         return media
 
-    def selected_role(self):
-        return None
-
     def values(self):
         if self.selected_id() is None:
             raise DomainError("请选择一个媒体，或先导入新文件。")

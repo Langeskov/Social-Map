@@ -1,6 +1,5 @@
 """Concentrated SQLite adapter; no business metadata or automatic create_all."""
 import logging
-from pathlib import Path
 from sqlalchemy import MetaData, create_engine, event
 from sqlalchemy.engine import Engine, URL
 from sqlalchemy.orm import DeclarativeBase
@@ -22,7 +21,7 @@ class Base(DeclarativeBase):
 
 
 def load_models() -> None:
-    from app.storage import models  # Register mappings for app and Alembic.
+    from app.storage import models  # noqa: F401  Register mappings for app and Alembic.
 
 
 class DatabaseError(RuntimeError):

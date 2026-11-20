@@ -1,4 +1,3 @@
-from pathlib import Path
 import pytest
 from platformdirs import user_data_path
 from app.config.paths import APP_NAME

@@ -10,7 +10,6 @@ from PIL import Image
 from sqlalchemy import select
 
 from app.config.settings import AppConfig
-from app.domain.errors import NotFoundError
 from app.services.application import create_application_services
 from app.services.database import initialize_database
 from app.services.export import EXPORT_FORMAT, JSON_NAME, MEDIA_DIR, README_NAME, WorkspaceExportService

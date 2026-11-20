@@ -23,12 +23,11 @@ from html import escape
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-    QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidgetItem, QVBoxLayout, QWidget)
+    QHBoxLayout, QLabel, QPushButton, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from app.domain.errors import DomainError
 from app.services.errors import DatabaseError
 from app.ui.event_detail import EventDetailDialog, plain_label, table, time_text, ROLE
-from app.ui.relationship_panel import HistoryDialog
 
 logger = logging.getLogger(__name__)
 
@@ -447,18 +446,6 @@ class TimelinePanel(QWidget):
             detail = self.services.events.detail(self.workspace_id, row.item.event_id, include_deleted=True)
             dialog = EventDetailDialog(detail, self, services=self.services)
             dialog.events_changed.connect(lambda _: self.refresh())
-            dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-            self._dialogs.append(dialog)
-            dialog.finished.connect(lambda _: self._dialogs.remove(dialog) if dialog in self._dialogs else None)
-            dialog.show()
-            return dialog
-        return self.run_operation(show)
-
-    def show_history_dialog(self, workspace_id, relationship_id):
-        """Append-only history view of one Relationship (no write, no inference)."""
-        def show():
-            entries = self.services.relationships.history(workspace_id, relationship_id, include_deleted=True)
-            dialog = HistoryDialog(entries, self)
             dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
             self._dialogs.append(dialog)
             dialog.finished.connect(lambda _: self._dialogs.remove(dialog) if dialog in self._dialogs else None)

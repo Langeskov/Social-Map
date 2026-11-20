@@ -8,7 +8,6 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget,
     QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
 from app.domain.errors import DomainError
-from app.services.errors import DatabaseError
 from app.ui.analysis_dialog import ANALYZE_LABELS, analysis_center
 from app.ui.operations import run_operation as _run_operation
 

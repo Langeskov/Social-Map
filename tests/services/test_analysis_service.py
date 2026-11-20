@@ -1,7 +1,7 @@
 """AnalysisService + gateway: recorded runs, retries, cancellation and privacy."""
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 

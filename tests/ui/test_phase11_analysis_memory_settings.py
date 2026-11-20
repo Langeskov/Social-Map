@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
+from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from app.config.settings import AppConfig
 from app.domain.entities import AnalysisRun

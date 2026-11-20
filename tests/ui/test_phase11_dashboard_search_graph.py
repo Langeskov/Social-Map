@@ -11,9 +11,8 @@ Contracts:
 * the Graph has a side filter panel with type, state, archived and deleted.
 """
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from uuid import UUID
 
 import pytest
 from PySide6.QtWidgets import QMessageBox
@@ -25,7 +24,7 @@ from app.services.application import create_application_services
 from app.services.database import initialize_database
 from app.services.unit_of_work import transaction
 from app.ui.design.widgets import LayerBadge
-from app.ui.main_window import ANALYSIS, DASHBOARD, EVENTS, PEOPLE, MainWindow
+from app.ui.main_window import ANALYSIS, EVENTS, PEOPLE, MainWindow
 
 
 @pytest.fixture

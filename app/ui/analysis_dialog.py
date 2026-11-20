@@ -24,7 +24,7 @@ from types import SimpleNamespace
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+    QTableWidget, QTableWidgetItem, QVBoxLayout)
 
 from app.domain.errors import DomainError
 from app.domain.validation import normalize_datetime
@@ -1034,9 +1034,6 @@ class AnalysisResultDialog(QDialog):
         return {"PERSON": len(sources.people), "RELATIONSHIP": len(sources.relationships),
                 "EVENT": len(sources.events), "EVIDENCE": len(sources.evidence),
                 "total": sources.total()}
-
-    def section_keys(self):
-        return [key for key, _ in RESULT_SECTIONS if key in self.section_views]
 
     # ------------------------------------------------------------------ snapshot
     def snapshot_dialog(self, parent=None):

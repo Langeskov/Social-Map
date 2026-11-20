@@ -15,16 +15,14 @@ import json
 import logging
 import time
 from dataclasses import dataclass, replace
-from datetime import timedelta
 from uuid import UUID
 
-from app.domain.entities import (ANALYSIS_TYPE_FOR_TARGET, ANALYSIS_TYPES, AnalysisRun,
+from app.domain.entities import (ANALYSIS_TYPE_FOR_TARGET, AnalysisRun,
                                  AnalysisSourceSet)
 from app.domain.errors import ConflictError, DomainError, NotFoundError
 from app.domain.validation import normalize_datetime, utc_now, validate_uuid
 from app.services.analysis_repositories import sql_analysis_repositories
-from app.services.context import (ALL_TIME, DEFAULT_MAX_CONTEXT_TOKENS, LAST_30_DAYS,
-                                  AnalysisRequest, ContextBuilder, ContextSnapshot,
+from app.services.context import (AnalysisRequest, ContextBuilder, ContextSnapshot,
                                   snapshot_from_mapping)
 from app.services.operations import write_operation
 from app.services.prompt import PromptBuilder

@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 from PIL import Image
-from PySide6.QtWidgets import QLabel, QMessageBox
+from PySide6.QtWidgets import QMessageBox
 
 from app.config.settings import AppConfig
 from app.services.application import create_application_services
@@ -101,16 +101,10 @@ def test_evidence_detail_marks_original_and_annotation(case):
                                                  annotation="我的注释")
     detail = services.evidence.detail(ws, evidence.id)
     dialog = EvidenceDetailDialog(detail)
-    try:
-        raw_tags = [label.text() for label in dialog.findChild(type(dialog), "", None) or []]
-    except Exception:
-        raw_tags = []
     assert dialog.content.isReadOnly()
     assert dialog.annotation.isReadOnly() is False
     assert dialog.content.toPlainText() == "原文"
     assert dialog.annotation.toPlainText() == "我的注释"
-    # The two sections are still separate groups with their historic objectNames.
-    raw = dialog.findChild(object, "evidenceRawGroup")
     dialog.close()
 
 
@@ -142,10 +136,10 @@ def test_last_image_attachment_is_refused_with_the_service_message(case):
 def test_timeline_separates_upcoming_from_past(case, qt_app):
     services, ws = case.services, case.ws
     now = datetime.now(timezone.utc)
-    past = services.events.create_event(ws, "过去的事件", "Meeting",
-                                        started_at=now - timedelta(days=3))
-    future = services.events.create_event(ws, "未来的事件", "Meeting",
-                                          started_at=now + timedelta(days=30))
+    services.events.create_event(ws, "过去的事件", "Meeting",
+                                 started_at=now - timedelta(days=3))
+    services.events.create_event(ws, "未来的事件", "Meeting",
+                                 started_at=now + timedelta(days=30))
     case.window.navigation.setCurrentRow(0)
     qt_app.processEvents()
     panel = case.window.dashboard_page.workspace_timeline

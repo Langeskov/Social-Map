@@ -1,7 +1,6 @@
 """Phase 6 Evidence service: kind rules, immutability, atomicity and conflicts."""
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from threading import Barrier
 from uuid import uuid4

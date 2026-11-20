@@ -5,9 +5,7 @@ from PySide6.QtCore import Qt, Signal
 # Re-exported so the modules that already import it from here keep one boundary.
 from app.ui.operations import UNKNOWN_MESSAGE, run_operation  # noqa: F401
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QHeaderView,
-    QLabel, QMessageBox, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
-from app.domain.errors import DomainError
-from app.services.errors import DatabaseError
+    QLabel, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
 from app.ui.design.widgets import LayerBadge, StatusPill
 
 logger = logging.getLogger(__name__)
@@ -63,7 +61,6 @@ class EventDetailView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_detail = None
-        self.evidence_widget = None
         layout = QVBoxLayout(self)
         # Header: layer identity + lifecycle state, so the object is recognisable
         # without reading the form.
@@ -116,12 +113,6 @@ class EventDetailView(QWidget):
         self.histories = table(["关系类型", "状态", "生效时间 UTC", "历史备注", "History UUID"], "eventHistories")
         self.histories.setMinimumHeight(130)
         histories_layout.addWidget(self.histories)
-
-    def attach_evidence(self, widget):
-        """Place the Evidence panel between Description and Related history."""
-        self.evidence_widget = widget
-        self.evidence_slot.addWidget(widget)
-        return widget
 
     def set_detail(self, detail):
         self.current_detail = detail

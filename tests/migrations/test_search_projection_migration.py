@@ -30,7 +30,7 @@ from app.storage.models import (
     RelationshipModel, SearchDocumentModel, WorkspaceModel,
 )
 from tests.migrations.schema_facts import (
-    ANALYSIS_TABLES, EVIDENCE_TABLES, FACT_TABLES, MEMORY_TABLES, NOW, PROJECTION_OBJECTS,
+    ANALYSIS_TABLES, FACT_TABLES, MEMORY_TABLES, NOW, PROJECTION_OBJECTS,
     PROJECTION_TABLES, SEARCH_DOCUMENT, SEARCH_DOCUMENT_FTS, fts_shadow_tables,
 )
 

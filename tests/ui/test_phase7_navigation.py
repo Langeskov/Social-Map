@@ -16,7 +16,6 @@ from app.services.application import create_application_services
 from app.services.database import initialize_database
 from app.ui.event_detail import ROLE
 from app.ui.main_window import MainWindow
-from app.ui.pages import PlaceholderPage
 from app.ui.search_panel import SearchPanel
 from app.ui.timeline_panel import MODE_PERSON, MODE_WORKSPACE, RelationshipDetailDialog, TimelineRow
 

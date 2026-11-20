@@ -15,8 +15,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QMessageBox, QPushButton,
     QTableWidgetItem, QVBoxLayout, QWidget)
 from app.domain.errors import ConflictError, DomainError
-from app.services.errors import DatabaseError
-from app.ui.event_detail import ROLE, plain_label, table, time_text
+from app.ui.event_detail import plain_label, table, time_text
 from app.ui.evidence_dialog import (EvidenceCreateDialog, EvidenceDetailDialog, EvidenceMetadataDialog,
     MediaAttachDialog, attachment_values, make_attachment_table)
 

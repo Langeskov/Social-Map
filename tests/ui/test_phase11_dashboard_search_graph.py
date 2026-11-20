@@ -232,7 +232,7 @@ def test_graph_state_filter_filters_without_extra_queries(case, qt_app):
 
 def test_graph_edge_colours_come_from_tokens(case, qt_app):
     from app.ui.design.tokens import COLORS
-    from app.ui.graph_page import DELETED_COLOUR, DIRECTED_COLOUR, STATE_PENS, UNKNOWN_STATE_PEN
+    from app.ui.graph_canvas import DELETED_COLOUR, DIRECTED_COLOUR, STATE_PENS, UNKNOWN_STATE_PEN
     allowed = set(COLORS.values())
     assert DIRECTED_COLOUR in allowed
     assert DELETED_COLOUR in allowed

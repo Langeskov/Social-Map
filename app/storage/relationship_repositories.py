@@ -1,5 +1,5 @@
 """Explicit relationship adapters. Identity is immutable; history is append-only."""
-from dataclasses import fields, replace
+from dataclasses import replace
 from datetime import datetime
 from uuid import UUID
 from sqlalchemy import and_, or_, select

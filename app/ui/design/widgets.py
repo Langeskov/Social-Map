@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget)
 
 from app.ui.design import fonts, icons, tokens
-from app.ui.design.tokens import (COLORS as C, EPISTEMIC_BY_KEY, LAYER_BY_KEY, SPACE, STATE_COPY, STATUSES)
+from app.ui.design.tokens import (EPISTEMIC_BY_KEY, LAYER_BY_KEY, SPACE, STATE_COPY, STATUSES)
 
 
 def repolish(widget: QWidget) -> None:

@@ -557,16 +557,15 @@ class AnalysisPage(ContextPage, QWidget):
             return []
         accepted = rejected = 0
         for candidate in candidates:
-            entity_id = getattr(candidate, "entity_id", None)
             is_accepted = bool(getattr(candidate, "accepted", False))
             row = self.candidates.rowCount()
             self.candidates.insertRow(row)
             if is_accepted:
                 accepted += 1
-                verdict, status_text = CANDIDATE_ACCEPTED, "候选 · 已接受（可跳转）"
+                verdict = CANDIDATE_ACCEPTED
             else:
                 rejected += 1
-                verdict, status_text = CANDIDATE_REJECTED, "候选 · 无效（不可跳转）"
+                verdict = CANDIDATE_REJECTED
             values = [str(getattr(candidate, "entity_type", "") or "—"),
                       self.candidate_target_text(candidate), verdict,
                       str(getattr(candidate, "reason", "") or "—")]

@@ -12,11 +12,11 @@ The contracts under test:
 * the People list has an archived filter and never invents rows;
 * Evidence and Analysis tabs read the fact layer: nothing is written by looking.
 """
-from datetime import date, datetime, timezone
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtWidgets import QLabel, QMessageBox
+from PySide6.QtWidgets import QMessageBox
 
 from app.config.settings import AppConfig
 from app.services.application import create_application_services

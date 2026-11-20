@@ -102,9 +102,6 @@ class FakeTransport:
     def push(self, response):
         self._responses.append(response)
 
-    def set_error(self, error):
-        self._error = error
-
     def set_default(self, response):
         self._default = response
 

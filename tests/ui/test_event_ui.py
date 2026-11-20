@@ -3,7 +3,6 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 import logging
 import pytest
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QMessageBox
 from app.config.settings import AppConfig
 from app.domain.errors import DomainError

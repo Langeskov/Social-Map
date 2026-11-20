@@ -59,7 +59,3 @@ class Evidence:
         object.__setattr__(self, "created_at", normalize_datetime(self.created_at, "created_at"))
         object.__setattr__(self, "updated_at", normalize_datetime(self.updated_at, "updated_at"))
         object.__setattr__(self, "deleted_at", normalize_datetime(self.deleted_at, "deleted_at", optional=True))
-
-    @property
-    def has_original_content(self):
-        return bool(self.content_text and self.content_text.strip())

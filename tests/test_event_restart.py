@@ -1,7 +1,6 @@
 """Independent process persistence and real desktop startup acceptance on temporary data."""
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 from app.config.settings import PROJECT_ROOT

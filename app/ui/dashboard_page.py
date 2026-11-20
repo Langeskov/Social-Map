@@ -17,12 +17,10 @@ from uuid import UUID
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QSplitter, QVBoxLayout, QWidget)
+    QListWidgetItem, QPushButton, QSplitter, QVBoxLayout, QWidget)
 
 from app.domain.entities import AnalysisRun, Event, Evidence, Person
-from app.domain.errors import DomainError
 from app.services.dashboard import RelationshipChange
-from app.services.errors import DatabaseError
 from app.ui.context import ContextPage
 from app.ui.design.widgets import SectionHeader
 from app.ui.event_detail import plain_label, time_text, ROLE

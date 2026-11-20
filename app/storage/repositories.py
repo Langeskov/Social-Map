@@ -3,7 +3,6 @@
 Each save flushes before returning so consecutive parent/child saves respect
 foreign keys without ORM relationships. Transaction ownership stays in services.
 """
-from dataclasses import fields
 from uuid import UUID
 
 from sqlalchemy import delete, exists, or_, select
@@ -13,7 +12,7 @@ from app.domain.entities import Media, Person, PersonAlias, PersonMedia, Workspa
 from app.storage import search_projection
 from app.storage.mapping import (apply_update as _update, to_domain as _domain, to_values as _values)
 from app.storage.models import (
-    EvidenceMediaModel, EvidenceModel, MediaModel, PersonAliasModel, PersonMediaModel,
+    EvidenceMediaModel, MediaModel, PersonAliasModel, PersonMediaModel,
     PersonModel, WorkspaceModel,
 )
 

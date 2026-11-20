@@ -1,6 +1,5 @@
 """Memory storage adapter: soft delete, validity window, workspace isolation."""
 from dataclasses import fields
-from datetime import datetime
 from sqlalchemy import select
 
 from app.domain.entities import Memory

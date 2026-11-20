@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
     QVBoxLayout, QWidget)
 
 from app.domain.errors import DomainError
-from app.services.errors import DatabaseError
 from app.ui.shortcuts import install_save_shortcut
 from app.ui.analysis_dialog import parse_optional_datetime, plain_label, time_text
 
@@ -408,12 +407,6 @@ class MemoryPanel(QWidget):
                 + (f"（含已删除 {deleted}）" if deleted else "")
                 + (" · 含过期／未生效" if self.include_expired.isChecked() else "")
                 + " · 本页只读取你确认过的 Memory，不生成、不自动修改事实。")
-
-    # ------------------------------------------------------------------- rows
-    def row_values(self, memory):
-        """The five displayed cells (used by the tests and by ``fill_table``)."""
-        return [memory.content, kind_text(memory.kind), source_text(memory), validity_text(memory),
-                time_text(memory.confirmed_at)]
 
     # ---------------------------------------------------------------- operations
     def list_people(self):

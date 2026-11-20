@@ -15,9 +15,9 @@ The widget is a pure view over ``SearchService``:
 """
 import logging
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (QCheckBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtCore import QTimer, Signal
+from PySide6.QtWidgets import (QCheckBox, QHBoxLayout, QLineEdit, QListWidget,
+    QListWidgetItem, QPushButton, QVBoxLayout, QWidget)
 
 from app.domain.errors import DomainError
 from app.services.errors import DatabaseError

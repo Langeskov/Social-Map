@@ -76,10 +76,6 @@ class TopBar(QFrame):
             finally:
                 self.workspace_combo.blockSignals(False)
 
-    def selected_workspace(self):
-        data = self.workspace_combo.currentData()
-        return data
-
     def set_status(self, text: str) -> None:
         self.status.setText(text)
 

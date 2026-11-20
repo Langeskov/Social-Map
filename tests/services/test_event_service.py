@@ -10,7 +10,6 @@ from app.config.settings import AppConfig
 from app.domain.errors import ConflictError, DomainError, NotFoundError, WorkspaceMismatchError
 from app.services.database import initialize_database
 from app.services.event import EventService, ParticipantInput
-from app.services.event_repositories import sql_event_repositories
 from app.services.person import PersonService
 from app.services.relationship import RelationshipService
 from app.services.unit_of_work import transaction

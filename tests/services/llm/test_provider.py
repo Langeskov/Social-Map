@@ -1,6 +1,5 @@
 """OpenAI-compatible provider over a fake transport: no test reaches the network."""
 import json
-from datetime import datetime, timezone
 
 import pytest
 

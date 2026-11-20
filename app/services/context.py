@@ -5,8 +5,8 @@ builder *renders a factual context*), and it renders an explicit, reproducible
 snapshot. The snapshot is stored on the AnalysisRun, because facts change later and
 a past analysis must still show exactly what the model was given.
 """
-from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta, timezone
+from dataclasses import dataclass
+from datetime import datetime, time, timedelta, timezone
 from uuid import UUID
 
 from app.domain.entities import Event, Evidence, Person
@@ -44,10 +44,6 @@ def event_instant(event: Event) -> datetime:
     if event.occurred_on is not None:
         return datetime.combine(event.occurred_on, time.min, tzinfo=timezone.utc)
     raise DomainError("Event 既没有 occurred_on 也没有 started_at。")
-
-
-def evidence_instant(evidence: Evidence) -> datetime:
-    return evidence.captured_at or evidence.created_at
 
 
 @dataclass(frozen=True)

@@ -103,7 +103,6 @@ class PersonMediaModel(Base):
 
 
 # Phase 4 additions: the five preceding mappings remain unchanged.
-from sqlalchemy import PrimaryKeyConstraint
 
 
 class RelationshipModel(Base):

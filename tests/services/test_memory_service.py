@@ -3,7 +3,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import func, select

@@ -1,6 +1,4 @@
 from dataclasses import replace
-import logging
-from pathlib import Path
 import pytest
 from app.config.settings import AppConfig, ConfigError, load_config
 from app.logging_setup import configure_logging

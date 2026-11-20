@@ -19,7 +19,7 @@ import pytest
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
 from app.ui.design import fonts, icons, theme, tokens
-from app.ui.design.widgets import (ConflictBanner, EpistemicFrame, EpistemicTag, LayerBadge, LayerCard,
+from app.ui.design.widgets import (ConflictBanner, EpistemicFrame, LayerBadge, LayerCard,
                                    SectionHeader, StateStack, StatusPill)
 
 UI_ROOT = Path(__file__).resolve().parents[2] / "app" / "ui"

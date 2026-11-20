@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from app.domain.entities import Media, Person, PersonAlias, PersonMedia, Workspace
+from app.domain.entities import Person, PersonAlias, Workspace
 from app.services.repositories import sql_repositories
 from app.services.unit_of_work import transaction
 from app.storage.database import DatabaseError

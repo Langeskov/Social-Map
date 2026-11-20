@@ -462,10 +462,6 @@ class SettingsPage(ContextPage, QWidget):
         column.addWidget(self.export_details)
         layout.addWidget(box)
 
-    def _build_storage(self, layout):
-        layout.addWidget(self._storage_box())
-        layout.addWidget(plain_label(LOCAL_ONLY_HINT))
-
     # --------------------------------------------------------------- lifecycle
     def activate(self):
         """Re-read the Workspace list only; no check, backup or export runs here."""
@@ -552,13 +548,6 @@ class SettingsPage(ContextPage, QWidget):
             f"导出 Workspace：{name} · {self.workspace_id or '—'}（在上方「当前 Workspace」切换）")
 
     # -------------------------------------------------- Workspace management
-    def _refresh_workspace_listing(self):
-        """Re-read the Workspace list and keep the shell selector in step."""
-        if self.workspace_context is not None:
-            self.workspace_context.refresh()
-        self.load_workspaces()
-        self.update_workspace_labels()
-
     def create_workspace(self):
         """Create a Workspace from Settings (same service rule as elsewhere)."""
         if self.workspaces is None:
@@ -641,9 +630,6 @@ class SettingsPage(ContextPage, QWidget):
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         dialog.show()
         return dialog
-        # Without a Workspace there is nothing to scope a single-Workspace audit to.
-        self.current_workspace_only.setEnabled(self.workspace_id is not None)
-        return name
 
     def run_operation(self, callback):
         return run_operation(self, callback)

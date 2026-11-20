@@ -1,5 +1,4 @@
 """Unified search: real FTS5 index, workspace isolation and rebuildability."""
-from dataclasses import replace
 from datetime import date, datetime, timezone
 from uuid import uuid4
 import pytest
@@ -202,7 +201,6 @@ def test_rebuild_index_recovers_from_dropped_or_stale_projection(env):
     person, other = seed_people(env)
     event = seed_event(env, participants=(person.id,))
     seed_evidence(env, event)
-    expected_people = {person.id, other.id}
     with transaction(env.runtime.sessions, write=True) as session:
         rows = SearchProjectionStore(session).count(env.ws)
         assert rows >= 4

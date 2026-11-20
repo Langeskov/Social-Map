@@ -4,7 +4,7 @@ The page must show recorded facts only: six counts and four bounded recent lists
 each row jumping to the detail that owns it. No strength/affinity/danger figure and
 no Analysis placeholder is allowed to appear.
 """
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest

@@ -4,7 +4,6 @@
 app.storage.models is the second line of defence against rewriting original
 content, kind, source, captured_at or the owning Event.
 """
-from dataclasses import fields
 from sqlalchemy import and_, delete, select
 from app.domain.entities import Evidence, EvidenceMedia
 from app.domain.errors import DomainError, NotFoundError

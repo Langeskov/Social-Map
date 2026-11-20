@@ -136,6 +136,8 @@ class PersonNode(QGraphicsItem):
         self.display_name = person.display_name
         self.count = int(count)
         self.deleted = bool(deleted)
+        #: The subject of an Ego Network: drawn emphasised, never a fact change.
+        self.current = False
         self.avatar = avatar
         self.diameter = float(diameter)
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -164,7 +166,8 @@ class PersonNode(QGraphicsItem):
         body = QColor(COLORS["raised"] if not self.deleted else COLORS["surface"])
         border = QColor(COLORS["archived"] if self.deleted else COLORS["entity"])
         painter.setBrush(QBrush(body))
-        painter.setPen(QPen(border, 3 if self.isSelected() else 1))
+        emphasized = self.isSelected() or self.current
+        painter.setPen(QPen(border, 3 if emphasized else 1))
         painter.drawEllipse(QRectF(-self.radius, -self.radius, self.diameter, self.diameter))
         top = -12
         if self.avatar is not None and not self.avatar.isNull():

@@ -94,7 +94,7 @@ def test_workspace_keeps_all_regions_and_inspector_tabs(workspace_ui):
     # Inspector tabs keep the layer chain Link -> Occurrence -> Proof -> User -> Inference.
     titles = [page.detail_tabs.tabText(index) for index in range(page.detail_tabs.count())]
     assert [title.split(" · ")[0] for title in titles] == [
-        "关系", "时间线", "Evidence", "Memory", "Analysis"]
+        "关系", "Activity", "Evidence", "Memory", "Analysis"]
     assert page.timeline_card.layer.key == "OCCURRENCE"
     assert page.analysis_layer.layer.key == "INFERENCE"
     assert c.errors == []

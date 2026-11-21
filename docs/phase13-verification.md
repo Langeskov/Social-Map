@@ -330,6 +330,130 @@ Entity Manifest 记录实体曝光程度**的方案（不使用"旧来源集合 
 
 ---
 
+## Phase 13.2 — Source Grounding & Verification
+
+**目标**：让分析中的来源引用拥有明确、可重复验证的依据；引用合法性必须由真实
+AnalysisRun + AnalysisSource + Context Entity Manifest 共同判定，且失败原因不可合并为
+一个布尔值。语义支持（推断是否合理、矛盾是否成立）仍归人工，不由确定性规则冒充。
+
+### 完成内容
+
+1. **引用验证器**（`app/services/reference_verification.py` + 领域模型
+   `app/domain/entities/reference_validation.py`）：`ReferenceVerifier` 组合
+   `AnalysisSource`（本次运行来源集合）+ `Context Entity Manifest`（曝光等级）+
+   跨 Workspace 只读查找（`ReferenceLookupRepository`），输出 9 种互斥状态及原因：
+   `VALID_FULL`、`VALID_LIMITED`、`INVALID_FORMAT`、`UNKNOWN_SOURCE`、`NOT_IN_RUN`、
+   `WORKSPACE_MISMATCH`、`TYPE_MISMATCH`、`DELETED_SOURCE`、`SOURCE_NOT_EXPOSED`。
+   - 跨 Workspace 判定与"不存在"严格区分；类型伪造（用 Person UUID 冒充 EVENT）单列；
+   - 删除状态先于来源归属；旧快照无 Manifest → 只确认来源归属并标 `VALID_LIMITED`，
+     **不升级为 VALID_FULL**、不回填；
+   - 查询只读：验证过程写零行（测试固定）。
+2. **候选引用状态化**：`MemoryService.candidate_references()` 改用同一验证器，同时覆盖
+   结构化 JSON references 与旧版 `[TYPE:<uuid>]` 标记；返回 `ValidatedReference`
+   （status + reason），**移除 accepted 布尔**；旧 `CandidateReference` 类删除。
+3. **UI**：结果对话框从 Service 取 `EntryReferenceCheck`，逐条显示引用状态与原因
+   （元数据行给出"完整/有限/无效"计数），不再出现"未校验"占位；候选引用表显示
+   "有效（完整曝光）/ 有效（有限曝光）/ 无效（状态 · 原因）"，只有有效行可跳转，
+   有限曝光行明确标注"仅能引用所示信息"。
+4. **评估集成（8.7）**：数据集 1.1 为 A/D/G7 增加固定样例回答（`sample_output`，
+   `<<TYPE:key>>` 占位符在运行期解析为真实 UUID）；新增
+   `REFERENCE_GROUNDING` 确定性指标：对照场景声明的期望状态，自动检测真实引用、
+   有限曝光、跨 Workspace、类型错误、未曝光、未知 UUID 与 FACT 条目缺引用数量。
+5. **文档**：`docs/analysis.md`、`docs/memory.md`、`docs/phase13-evaluation.md`。
+
+### 修改文件
+
+- 新增：`app/domain/entities/reference_validation.py`、
+  `app/services/reference_verification.py`、`app/repositories/reference_interfaces.py`、
+  `app/storage/reference_repositories.py`、`tests/services/test_reference_verification.py`
+- 修改：`app/domain/entities/{__init__,memory}.py`、`app/services/{analysis,
+  analysis_repositories,memory}.py`、`app/ui/{analysis_dialog,analysis_page}.py`、
+  `app/evaluation/{__init__,models,dataset,runner}.py`、数据集（18 个 JSON，v1.1）、
+  `tests/evaluation/{test_dataset,test_evaluation_contract,test_evaluation_runner}.py`、
+  `tests/services/test_memory_service.py`、`tests/ui/{test_analysis_ui,test_memory_ui}.py`、
+  `docs/{analysis,memory,phase13-evaluation}.md`
+- 删除：无（`CandidateReference` 类被状态化 DTO 取代）
+
+### 边界与数据库变更
+
+- 新增只读仓储契约 `ReferenceLookupRepository`（跨 Workspace 存在性查询）+ SQL 适配器；
+  **无数据库迁移、无 schema 变化、无新表**。
+- 验证只读：不改事实、不写 AnalysisSource、不写 Memory、不回填历史 Run。
+- 验证器是候选引用 / 对话框 / 评估 Runner 的**唯一**判定来源（决策 §2 单一 Manifest、
+  §4 一致验证结果）。
+
+### 新增测试（15 项）
+
+- `test_reference_verification.py`（9）：VALID_FULL/LIMITED 按曝光等级、
+  INVALID_FORMAT/UNKNOWN_SOURCE/TYPE_MISMATCH、WORKSPACE_MISMATCH、DELETED_SOURCE、
+  SOURCE_NOT_EXPOSED、旧快照 NOT_IN_RUN 且不升级、逐条目多引用、只读且无法伪造状态、
+  候选服务与验证器一致。
+- `test_dataset.py`（+3）：样例输出与夹具绑定、未知占位符拒绝、期望引用必须出现在样例内容中。
+- `test_evaluation_runner.py`（+2）：样例引用状态全覆盖 PASS、错误期望 → FAIL 且原因可读。
+- `test_analysis_ui.py`（+1）：真实引用在结果对话框中显示 `VALID_FULL` 与计数。
+
+### 测试迁移（4 个文件）
+
+`test_memory_service.py`（2 项：状态化断言）、`test_memory_ui.py`（2 项：重命名 + 有限曝光
+展示/可跳转断言）、`test_analysis_ui.py`（结构化用例改为断言验证状态、新增真实引用用例）、
+评估测试（数据集 v1.1 契约与指标计数 17→18）。未削弱任何事实/隐私断言；
+5 项 Windows symlink 环境 Skip 保持原义。
+
+### 测试运行命令与结果
+
+子集（服务层 + 受影响 UI + 评估）：
+
+```powershell
+& .\.venv\Scripts\python.exe -s -m pytest tests/services tests/evaluation tests/ui/test_analysis_ui.py tests/ui/test_memory_ui.py tests/ui/test_phase11_analysis_memory_settings.py -q -ra
+```
+
+- 515 passed / 0 failed（2:39）。
+
+全量回归（13.2 完成后）：
+
+- **1598 collected / 1593 passed / 5 environment-skipped / 0 failed（退出码 0，8:29）**
+- 增量核对：1583（13.1 完成后）+ 15（13.2 新增：验证器 9 + 数据集 3 + 评估 2 +
+  UI 1）= 1598 ✓；5 项 Windows symlink 环境 Skip 保持原义。
+
+### Git 提交
+
+| Commit | 说明 |
+|---|---|
+| `89d8124` | feat(analysis)：共享引用验证状态 + 候选引用状态化 + 对话框/UI + 评估集成 |
+| `17d6fb3` | test(analysis)：验证状态全覆盖、候选展示与 grounding 评估测试 |
+| （本文件提交） | docs(phase13)：记录 Phase 13.2 |
+
+### 与原始计划不同的实现及理由
+
+1. **新增只读 `ReferenceLookupRepository`**：区分 WORKSPACE_MISMATCH 与 UNKNOWN_SOURCE
+   需要跨 Workspace 存在性；现有事实仓储都是 workspace 作用域。该契约为只读、无迁移，
+   是 8.2 要求的必要最小实现。
+2. **`EVENT_REFERENCE` 已存在的曝光等级直接参与状态映射**（EVENT_REFERENCE →
+   VALID_LIMITED），无需额外状态。
+3. **数据集版本 1.1 而非 1.0**：新增可选 `sample_output` 结构并修改内容，按契约递增
+   dataset_version；schema_version 不变（新增字段向后兼容）。
+4. **对话内验证展示**：13.2 决策只点名候选引用一致性，但解析后的结果同样需要可解释
+   依据；复用同一 Service 方法（`AnalysisService.reference_checks`）而非在 UI 判定。
+
+### 已知局限 / 结转
+
+- **语义支持仍不可自动判定**：`VALID_*` 只证明引用合法；句子是否被材料支持、两份
+  材料是否矛盾、因果是否成立仍为人工复核（Scenario `human_review` 与 8.6 边界）。
+- `FACT_COVERAGE` / `UNCERTAINTY_HANDLING` / `EPISTEMIC_SEPARATION` 等参考答案指标
+  仍为 N/A（需参考答案比对/人工；13.4 在线评估时接入）。
+- 离线运行只有 3 个 Scenario 带固定样例回答；其余场景的引用验证在在线评估（13.4）
+  时由同一验证器覆盖。
+- 候选引用仍按固定顺序列出（结构化顺序优先）；无排序/过滤 UI。
+
+### 下一阶段（13.3）的前置条件
+
+✅ 引用验证器与状态词表稳定；✅ 候选/对话框/评估共用同一判定；✅ 数据集 v1.1 有固定
+样例回答与期望状态；✅ 历史兼容与只读约束有测试。13.3 需要：Request/Response 元数据
+（Provider、模型、Prompt 版本/hash、上下文 hash、usage、finish_reason、duration）
+与隐私边界；若需要持久化先给出字段缺口分析与最小迁移方案。
+
+---
+
 ## 最终回归（每子阶段后更新）
 
 | 阶段 | collected | passed | skipped | failed | 退出码 |
@@ -339,3 +463,4 @@ Entity Manifest 记录实体曝光程度**的方案（不使用"旧来源集合 
 | Phase 13.0 完成后 | 1557 | 1552 | 5 | 0 | 0 |
 | Phase 13.0 补充（契约形式化） | — | — | — | — | 仅文档+注册表；相关子集 58 项通过 |
 | Phase 13.1 完成后 | 1583 | 1578 | 5 | 0 | 0 |
+| Phase 13.2 完成后 | 1598 | 1593 | 5 | 0 | 0 |

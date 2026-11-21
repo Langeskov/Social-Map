@@ -57,7 +57,7 @@ def attachment_snapshot(detail):
 
 
 class EvidencePanel(QWidget):
-    def __init__(self, services, parent=None):
+    def __init__(self, services, parent=None, *, dialog_pool=None):
         super().__init__(parent)
         self.setObjectName("evidencePanel")
         self.services = services
@@ -66,7 +66,9 @@ class EvidencePanel(QWidget):
         self.workspace_id = None
         self.include_deleted_event = False
         self._details = {}
-        self._dialogs = []
+        #: Non-modal detail windows; a caller (the page) may own the pool so a
+        #: Workspace reset can close them together with its own dialogs.
+        self._dialogs = dialog_pool if dialog_pool is not None else []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 12, 0, 0)
         layout.addWidget(plain_label("Evidence · 原始证据（原始内容只读，用户注释单独保存）"))

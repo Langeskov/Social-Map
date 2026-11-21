@@ -566,6 +566,14 @@ METRIC_DEFINITIONS: dict[str, MetricDefinition] = {
             "逐条核对 expected_context 与真实 ContextSnapshot；预期的超限拒绝也算成立。",
             "上下文构建", False, False, True,
             ""),
+        MetricDefinition(
+            "EXPOSURE_MANIFEST", "Exposure Manifest", "Deterministic",
+            "Context Entity Manifest 与 source_ids、持久化来源集合、上下文实体标记是否完全一致，"
+            "且曝光等级如实反映实际提供的内容。",
+            "13.1 起：核对 Manifest 条目与渲染标记 [TYPE:<uuid>]、source_ids()、analysis_*_source，"
+            "并检查 Evidence METADATA_ONLY / PERSON IDENTITY_ONLY 等等级不被夸大。",
+            "上下文构建 + 来源集", False, False, False,
+            "Context Entity Manifest 联动在 Phase 13.1 提供（本阶段无 Manifest 可核对）。"),
     )
 }
 

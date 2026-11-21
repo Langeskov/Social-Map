@@ -161,6 +161,31 @@
 
 ---
 
+## Phase 13.0 补充决策 — Source Exposure Contract
+
+项目负责人在 13.0 收口时补充确认：采用**扩展 AnalysisSource 覆盖范围 + Context
+Entity Manifest 记录实体曝光程度**的方案（不使用"旧来源集合 + 特殊人物引用类别"，
+也不允许无差别扩大来源集合）。详见 [phase13-evaluation.md §10](phase13-evaluation.md)。
+
+**本阶段（13.0）完成的契约形式化**（纯契约，无行为变化）：
+
+- `docs/phase13-evaluation.md` 新增 §10 来源曝光契约：核心语义、Manifest 字段与
+  按实体类型的曝光枚举、来源生成规则、Prompt 可识别性、13.2 验证状态、历史兼容、
+  数据库边界（复用四类来源表、无 migration）、评估契约影响；
+- 指标注册表新增 `EXPOSURE_MANIFEST`（确定性；13.0 为 N/A，13.1 启用），
+  注册表规模 16 → 17；§5 指标表与 §12 变更记录同步；
+- 已知局限 §11.2 的"来源集合边界"由本决策取代，实现分阶段：13.1 = 结构化引用
+  契约 + Manifest 联动；13.2 = 正式验证器（`VALID_LIMITED` 等状态、候选引用一致性）。
+
+**兼容性确认**：补充内容为文档与注册表条目，不改变任何运行时行为；
+`tests/evaluation` + `test_token_estimate` + `test_context_builder` 共 58 项通过。
+
+**结转**：13.1 需把 `[TYPE:<uuid>]` 标记写入渲染上下文、Manifest 驱动
+`source_ids()`/`_persist_sources()`、数据集恢复次要人物 `required_sources` 并启用
+`EXPOSURE_MANIFEST`；13.2 实现验证状态与候选引用界面一致的有限信息展示。
+
+---
+
 ## 最终回归（每子阶段后更新）
 
 | 阶段 | collected | passed | skipped | failed | 退出码 |

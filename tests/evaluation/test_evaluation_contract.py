@@ -64,7 +64,7 @@ def test_metric_registry_contains_the_required_table():
         definition = METRIC_DEFINITIONS.get(metric_id)
         assert definition is not None, metric_id
         assert definition.description and definition.method and definition.scope
-    assert len(METRIC_DEFINITIONS) == 16
+    assert len(METRIC_DEFINITIONS) == 17
 
 
 def test_metric_registry_keeps_modes_explicit():

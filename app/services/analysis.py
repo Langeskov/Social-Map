@@ -22,6 +22,11 @@ from app.domain.entities import (ANALYSIS_TYPE_FOR_TARGET, AnalysisRun,
 from app.domain.errors import ConflictError, DomainError, NotFoundError
 from app.domain.validation import normalize_datetime, utc_now, validate_uuid
 from app.services.analysis_repositories import sql_analysis_repositories
+from app.services.analysis_telemetry import (build_partial_request_telemetry,
+                                            build_request_telemetry,
+                                            complete_telemetry, fail_telemetry,
+                                            scope_with_telemetry,
+                                            telemetry_from_scope)
 from app.services.context import (AnalysisRequest, ContextBuilder, ContextSnapshot,
                                   snapshot_from_mapping)
 from app.services.operations import write_operation
@@ -53,6 +58,11 @@ class AnalysisRunView:
             return json.loads(self.run.scope)
         except (ValueError, TypeError):
             return {}
+
+    @property
+    def telemetry(self) -> dict | None:
+        """Versioned run telemetry (Phase 13.3); ``None`` for older runs."""
+        return telemetry_from_scope(self.scope)
 
 
 class AnalysisService:
@@ -177,32 +187,47 @@ class AnalysisService:
                 builder = ContextBuilder(self._repositories(session), clock=self._clock)
                 snapshot = builder.build(request, analysis_run_id=run_id)
         except Exception as exc:
-            return self._fail(run_id, request.workspace_id, exc, started_wall)
+            return self._fail(
+                run_id, request.workspace_id, exc, started_wall, scope=scope,
+                telemetry=build_partial_request_telemetry(
+                    provider_name=entry.provider_name, requested_model=entry.model))
+
+        messages = self._prompt.build(snapshot)
+        request_payload = _chat_request(entry, messages)
+        # Request identity is recorded before the call: if the provider fails we
+        # still know exactly what was meant to be sent (Phase 13.3).
+        telemetry = build_request_telemetry(request_payload, provider_name=entry.provider_name,
+                                            requested_model=entry.model, snapshot=snapshot)
 
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
             current = repositories.runs.get(request.workspace_id, run_id)
             running = replace(current, status="RUNNING",
                               context_snapshot=json.dumps(snapshot.to_mapping(), ensure_ascii=False),
+                              scope=json.dumps(scope_with_telemetry(scope, telemetry),
+                                               ensure_ascii=False),
                               started_at=self._now())
             repositories.runs.update(running)
             self._persist_sources(repositories, snapshot)
 
-        messages = self._prompt.build(snapshot)
-        request_payload = _chat_request(entry, messages)
         try:
             if cancel is not None:
                 cancel.raise_if_cancelled()
-            response = self._gateway.chat(request_payload, provider_name=entry.provider_name,
-                                          cancel=cancel)
+            response, attempts = self._gateway.chat_with_attempts(
+                request_payload, provider_name=entry.provider_name, cancel=cancel)
         except Exception as exc:
-            return self._fail(run_id, request.workspace_id, exc, started_wall)
+            return self._fail(run_id, request.workspace_id, exc, started_wall, scope=scope,
+                              telemetry=telemetry)
 
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
             current = repositories.runs.get(request.workspace_id, run_id)
             finished = self._complete(current, status="SUCCEEDED", result=response.content,
                                       started_wall=started_wall)
+            completed = complete_telemetry(telemetry, response, attempts=attempts,
+                                           duration_ms=finished.duration_ms or 0)
+            finished = replace(finished, scope=json.dumps(
+                scope_with_telemetry(scope, completed), ensure_ascii=False))
             return repositories.runs.update(finished)
 
     def cancel_run(self, workspace_id, run_id) -> AnalysisRun:
@@ -212,9 +237,20 @@ class AnalysisService:
             run = self._require(repositories, workspace_id, run_id)
             if run.finished:
                 raise ConflictError("该分析已经结束，无法取消。")
-            return repositories.runs.update(replace(
+            finished = replace(
                 run, status="CANCELLED", error_message="分析已取消；未修改任何事实数据。",
-                completed_at=self._now(), duration_ms=0))
+                completed_at=self._now(), duration_ms=0)
+            try:
+                scope = json.loads(run.scope)
+            except (ValueError, TypeError):
+                scope = {}
+            telemetry = telemetry_from_scope(scope)
+            if telemetry is not None:
+                cancelled = fail_telemetry(telemetry, status="CANCELLED", duration_ms=0,
+                                           error_class="Cancelled")
+                finished = replace(finished, scope=json.dumps(
+                    scope_with_telemetry(scope, cancelled), ensure_ascii=False))
+            return repositories.runs.update(finished)
 
     def delete_run(self, workspace_id, run_id) -> None:
         """Remove one run and its source rows; fact tables are untouched."""
@@ -240,7 +276,7 @@ class AnalysisService:
         return replace(run, status=status, result=result, error_message=error_message,
                        completed_at=finished_at, duration_ms=max(0, duration))
 
-    def _fail(self, run_id, workspace_id, exc, started_wall) -> AnalysisRun:
+    def _fail(self, run_id, workspace_id, exc, started_wall, *, scope, telemetry) -> AnalysisRun:
         from app.services.llm import LLMCancelledError, LLMError
         status = "CANCELLED" if isinstance(exc, LLMCancelledError) else "FAILED"
         message = str(exc) if isinstance(exc, (LLMError, DomainError)) else "分析失败，请查看本地日志。"
@@ -251,9 +287,14 @@ class AnalysisService:
             current = repositories.runs.get(workspace_id, run_id)
             if current is None:
                 raise NotFoundError("AnalysisRun 已被删除。")
-            return repositories.runs.update(self._complete(current, status=status, result=None,
-                                                           started_wall=started_wall,
-                                                           error_message=message))
+            failed = self._complete(current, status=status, result=None,
+                                    started_wall=started_wall, error_message=message)
+            failed_telemetry = fail_telemetry(telemetry, status=status,
+                                              duration_ms=failed.duration_ms or 0,
+                                              error_class=type(exc).__name__)
+            failed = replace(failed, scope=json.dumps(
+                scope_with_telemetry(scope or {}, failed_telemetry), ensure_ascii=False))
+            return repositories.runs.update(failed)
 
 
 def _chat_request(entry, messages):

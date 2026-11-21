@@ -1,6 +1,7 @@
 """AnalysisService + gateway: recorded runs, retries, cancellation and privacy."""
 import json
 import logging
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
@@ -9,14 +10,18 @@ import pytest
 from sqlalchemy import func, select
 
 from app.config.settings import AppConfig
+from app.domain.entities import AnalysisRun
 from app.domain.errors import ConflictError, DomainError, NotFoundError
 from app.services.analysis import AnalysisService
+from app.services.analysis_telemetry import (build_partial_request_telemetry,
+                                             scope_with_telemetry)
 from app.services.analysis_repositories import sql_analysis_repositories
 from app.services.application import create_application_services
 from app.services.context import ALL_TIME, AnalysisRequest
 from app.services.database import initialize_database
 from app.services.llm import (CancelToken, FakeTransport, HttpResponse, LLMConfigError,
                               LLMConfigStore, LLMGateway, LLMProviderConfig)
+from app.services.operations import write_operation
 from app.services.unit_of_work import transaction
 from app.storage.models import (AnalysisEventSourceModel, AnalysisEvidenceSourceModel,
                                 AnalysisPersonSourceModel, AnalysisRelationshipSourceModel,
@@ -24,6 +29,7 @@ from app.storage.models import (AnalysisEventSourceModel, AnalysisEvidenceSource
                                 RelationshipHistoryModel, RelationshipModel)
 
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
+DEFAULT_USAGE = {"total_tokens": 42}
 ANSWER = """## Facts（事实）
 根据记录，2026-04-01 有一场摄影活动。
 
@@ -37,13 +43,15 @@ ANSWER = """## Facts（事实）
 证据不足以确认关系强度。"""
 
 
-def chat_response(content=ANSWER, status=200):
+def chat_response(content=ANSWER, status=200, *, model="fake-model", finish_reason="stop",
+                  usage=DEFAULT_USAGE, raw_id="chatcmpl-1"):
     if status != 200:
         return HttpResponse(status, b'{"error":"private server detail"}', {}, "http://x/v1/chat/completions")
-    payload = {"id": "chatcmpl-1", "model": "fake-model",
-               "choices": [{"index": 0, "finish_reason": "stop",
-                            "message": {"role": "assistant", "content": content}}],
-               "usage": {"total_tokens": 42}}
+    payload = {"id": raw_id, "model": model,
+               "choices": [{"index": 0, "finish_reason": finish_reason,
+                            "message": {"role": "assistant", "content": content}}]}
+    if usage is not None:
+        payload["usage"] = usage
     return HttpResponse(status, json.dumps(payload).encode(), {}, "http://x/v1/chat/completions")
 
 
@@ -354,3 +362,170 @@ def test_unconfigured_provider_is_reported_clearly(env):
     service = AnalysisService(env.runtime.sessions, empty)
     with pytest.raises(LLMConfigError):
         service.create_run(request_for(env))
+
+
+# ------------------------------------------------ Phase 13.3: run telemetry
+
+def _stored_scope(env, run_id):
+    with transaction(env.runtime.sessions) as session:
+        raw = session.scalar(select(AnalysisRunModel.scope).where(AnalysisRunModel.id == run_id))
+    return json.loads(raw)
+
+
+def test_successful_run_records_request_and_response_telemetry(env):
+    run = env.services.analysis.create_run(request_for(env))
+    telemetry = env.services.analysis.get(env.ws, run.id).telemetry
+    assert telemetry is not None and telemetry["version"] == "1"
+    identity = telemetry["request"]
+    assert identity["provider_name"] == "fake"
+    assert identity["requested_model"] == "fake-model"
+    assert identity["prompt_template_version"] == "2"
+    assert identity["analysis_schema_version"] == "1"
+    assert len(identity["prompt_hash"]) == 64
+    assert len(identity["context_snapshot_hash"]) == 64
+    assert len(identity["request_hash"]) == 64
+    assert identity["estimated_context_tokens"] > 0
+    response = telemetry["response"]
+    assert response["returned_model"] == "fake-model"
+    assert response["finish_reason"] == {"raw": "stop", "category": "STOP"}
+    assert response["usage"] == {"available": True, "prompt_tokens": None,
+                                 "completion_tokens": None, "total_tokens": 42}
+    assert response["provider_request_id"] == "chatcmpl-1"
+    execution = telemetry["execution"]
+    assert execution["status"] == "SUCCEEDED"
+    assert execution["retry_count"] == 0
+    assert execution["duration_ms"] >= 0
+    # Telemetry lives inside the existing scope JSON (no schema change).
+    stored = _stored_scope(env, run.id)
+    assert stored["telemetry"]["version"] == "1"
+    assert stored["credential_ref"] == "env:RIS_TEST_KEY"
+    assert stored["analysis_type"] == "PERSON_PROFILE"
+
+
+def test_same_input_yields_same_prompt_context_and_request_hashes(env):
+    first = env.services.analysis.create_run(request_for(env))
+    second = env.services.analysis.create_run(request_for(env))
+    a = env.services.analysis.get(env.ws, first.id).telemetry["request"]
+    b = env.services.analysis.get(env.ws, second.id).telemetry["request"]
+    assert a["prompt_hash"] == b["prompt_hash"]
+    assert a["context_snapshot_hash"] == b["context_snapshot_hash"]
+    assert a["request_hash"] == b["request_hash"]
+    assert first.id != second.id
+
+
+def test_missing_usage_is_unavailable_not_zero(env):
+    env.transport.push(chat_response(usage=None))
+    run = env.services.analysis.create_run(request_for(env))
+    usage = env.services.analysis.get(env.ws, run.id).telemetry["response"]["usage"]
+    assert usage == {"available": False, "prompt_tokens": None,
+                     "completion_tokens": None, "total_tokens": None}
+
+
+def test_returned_model_and_finish_reason_are_recorded_verbatim(env):
+    env.transport.push(chat_response(model="gateway-model", finish_reason="length"))
+    run = env.services.analysis.create_run(request_for(env))
+    telemetry = env.services.analysis.get(env.ws, run.id).telemetry
+    assert telemetry["response"]["returned_model"] == "gateway-model"
+    assert telemetry["response"]["finish_reason"] == {"raw": "length", "category": "LENGTH"}
+    # The HTTP request succeeded; truncation is metadata, not a fabricated failure.
+    assert run.status == "SUCCEEDED"
+
+
+def test_retry_count_uses_actual_gateway_attempts(env):
+    env.transport.push(chat_response(status=429))
+    env.transport.push(chat_response())
+    run = env.services.analysis.create_run(request_for(env))
+    telemetry = env.services.analysis.get(env.ws, run.id).telemetry
+    assert run.status == "SUCCEEDED"
+    assert len(env.transport.requests) == 2
+    assert telemetry["execution"]["retry_count"] == 1
+
+
+def test_failed_run_records_execution_telemetry_without_response(env):
+    env.transport.push(chat_response(status=401))
+    run = env.services.analysis.create_run(request_for(env))
+    assert run.status == "FAILED"
+    telemetry = env.services.analysis.get(env.ws, run.id).telemetry
+    assert telemetry["request"]["provider_name"] == "fake"
+    assert len(telemetry["request"]["context_snapshot_hash"]) == 64
+    assert "response" not in telemetry
+    assert telemetry["execution"]["status"] == "FAILED"
+    assert telemetry["execution"]["error_class"] == "LLMAuthError"
+
+
+def test_context_failure_records_partial_execution_telemetry(env):
+    run = env.services.analysis.create_run(request_for(env, max_context_tokens=1))
+    assert run.status == "FAILED"
+    telemetry = env.services.analysis.get(env.ws, run.id).telemetry
+    assert telemetry["request"]["provider_name"] == "fake"
+    assert "context_snapshot_hash" not in telemetry["request"]   # context never built
+    assert telemetry["execution"]["status"] == "FAILED"
+    assert telemetry["execution"]["error_class"] == "DomainError"
+
+
+def test_old_run_without_telemetry_reads_as_unrecorded(env):
+    run = env.services.analysis.create_run(request_for(env))
+    with transaction(env.runtime.sessions) as session:
+        repositories = sql_analysis_repositories(session)
+        stored = repositories.runs.get(env.ws, run.id)
+        scope = json.loads(stored.scope)
+        scope.pop("telemetry", None)                  # a pre-13.3 stored record
+        repositories.runs.update(replace(stored, scope=json.dumps(scope)))
+    view = env.services.analysis.get(env.ws, run.id)
+    assert view.telemetry is None                     # never backfilled
+    assert view.scope["analysis_type"] == "PERSON_PROFILE"
+    assert view.run.result == ANSWER                 # stored result untouched
+
+
+def test_telemetry_stores_no_secrets_or_private_content(env):
+    run = env.services.analysis.create_run(request_for(env))
+    stored = _stored_scope(env, run.id)
+    dumped = json.dumps(stored["telemetry"], ensure_ascii=False)
+    assert "sk-test-secret-value" not in dumped
+    assert "Authorization" not in dumped and "Bearer" not in dumped
+    assert "私人聊天原文" not in dumped
+    assert ANSWER.splitlines()[1] not in dumped
+    assert set(stored["telemetry"]["request"]) <= {
+        "provider_name", "requested_model", "prompt_template_version", "prompt_hash",
+        "context_snapshot_hash", "request_hash", "analysis_schema_version",
+        "estimated_context_tokens"}
+
+
+def test_cancel_run_marks_telemetry_cancelled(env):
+    telemetry = build_partial_request_telemetry(provider_name="fake",
+                                                requested_model="fake-model")
+    scope = scope_with_telemetry({"analysis_type": "PERSON_PROFILE"}, telemetry)
+    with write_operation(env.runtime.sessions) as session:
+        repositories = sql_analysis_repositories(session)
+        run = repositories.runs.save(AnalysisRun(
+            workspace_id=env.ws, target_type="PERSON", target_id=env.person.id,
+            analysis_type="PERSON_PROFILE", provider_name="fake", model_name="fake-model",
+            scope=json.dumps(scope), status="RUNNING"))
+    cancelled = env.services.analysis.cancel_run(env.ws, run.id)
+    assert cancelled.status == "CANCELLED"
+    stored = env.services.analysis.get(env.ws, run.id).telemetry
+    assert stored["execution"] == {"status": "CANCELLED", "duration_ms": 0,
+                                   "retry_count": 0, "error_class": "Cancelled"}
+
+
+def test_scope_request_part_is_immutable_while_telemetry_is_append_only(env):
+    run = env.services.analysis.create_run(request_for(env))
+    with transaction(env.runtime.sessions) as session:
+        repositories = sql_analysis_repositories(session)
+        stored = repositories.runs.get(env.ws, run.id)
+        request_scope = json.loads(stored.scope)
+        changed = dict(request_scope)
+        changed["time_scope"] = "LAST_7_DAYS"          # rewriting the request part
+        with pytest.raises(DomainError):
+            repositories.runs.update(replace(stored, scope=json.dumps(changed)))
+    # Append-only telemetry is allowed and does not rewrite the request part.
+    with transaction(env.runtime.sessions) as session:
+        repositories = sql_analysis_repositories(session)
+        stored = repositories.runs.get(env.ws, run.id)
+        telemetry = stored_telemetry = json.loads(stored.scope)["telemetry"]
+        telemetry["execution"]["note"] = "manual-test"
+        updated = repositories.runs.update(replace(
+            stored, scope=json.dumps(scope_with_telemetry(json.loads(stored.scope), telemetry))))
+        assert json.loads(updated.scope)["telemetry"]["execution"]["note"] == "manual-test"
+        assert json.loads(updated.scope)["time_scope"] == request_scope["time_scope"]
+        assert stored_telemetry["version"] == "1"

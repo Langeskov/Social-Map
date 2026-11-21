@@ -2,7 +2,12 @@
 
 The fact tables are opened read-only here (the builder reads them elsewhere); this
 module only ever writes `analysis_run` and `analysis_*_source` rows.
+
+`AnalysisRun.scope` stays write-once for its **request part**; Phase 13.3 adds one
+append-only exception: the versioned ``telemetry`` block may be written/merged at
+run completion, and any other difference is refused instead of silently skipped.
 """
+import json
 from dataclasses import fields
 from sqlalchemy import delete, select
 
@@ -22,6 +27,24 @@ IDENTITY = ("id", "workspace_id", "target_type", "target_id", "analysis_type", "
 
 
 from app.storage.mapping import to_domain as snapshot, to_values as values
+
+
+def _update_scope(model, new_scope_json):
+    """Append-only scope update: only the ``telemetry`` block may change."""
+    try:
+        old = json.loads(model.scope or "{}")
+        new = json.loads(new_scope_json or "{}")
+    except (ValueError, TypeError) as exc:
+        raise DomainError("AnalysisRun.scope 必须是 JSON 对象。") from exc
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        raise DomainError("AnalysisRun.scope 必须是 JSON 对象。")
+    old_request = {key: value for key, value in old.items() if key != "telemetry"}
+    new_request = {key: value for key, value in new.items() if key != "telemetry"}
+    if old_request != new_request:
+        raise DomainError("AnalysisRun.scope 的请求部分不可修改；只允许追加 telemetry。")
+    model.scope = new_scope_json
+
+
 class SQLAnalysisRunRepository:
     def __init__(self, session):
         self.session = session
@@ -61,9 +84,12 @@ class SQLAnalysisRunRepository:
         if model.created_at != entity.created_at:
             raise DomainError("AnalysisRun 的创建时间不可修改。")
         for field_ in fields(entity):
+            if field_.name == "scope":
+                _update_scope(model, entity.scope)
+                continue
             if field_.name in {"id", "workspace_id", "target_type", "target_id", "analysis_type",
-                               "provider_name", "model_name", "scope", "created_at"}:
-                # Identity and scope are write-once: history is appended, not rewritten.
+                               "provider_name", "model_name", "created_at"}:
+                # Identity is write-once: history is appended, not rewritten.
                 continue
             setattr(model, field_.name, getattr(entity, field_.name))
         self.session.flush()

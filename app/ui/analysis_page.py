@@ -34,7 +34,8 @@ from app.services.prompt import split_result_sections
 from app.ui.analysis_dialog import (MEMORY_KINDS, RESULT_SECTIONS, SOURCE_KINDS, SOURCE_LABELS,
     TARGET_LABELS, AnalysisResultDialog, AnalysisSourceRows, ContextSnapshotDialog,
     MemoryConfirmDialog, ProviderSettingsDialog, display_sections, duration_text,
-    parsed_result, plain_label, suggested_memory_content, time_text, track_dialog, utc_text)
+    finish_status_note, parsed_result, plain_label, suggested_memory_content, time_text,
+    track_dialog, utc_text)
 from app.ui.analysis_dialog import run_analysis
 from app.ui.context import ContextPage
 from app.ui.design.tokens import SPACE
@@ -505,7 +506,8 @@ class AnalysisPage(ContextPage, QWidget):
                 self.summary.setPlainText(run.result or "")
             self.message.setText("状态 SUCCEEDED · 下面是模型输出，不是数据库事实；事实层未被修改。"
                                  f"输出格式 {parsed.parse_status} · 识别到的小节："
-                                 f"{self.section_summary(run)}")
+                                 f"{self.section_summary(run)}"
+                                 f"{finish_status_note(view.telemetry)}")
         else:
             self.message.setText(f"状态 {run.status} · {run.error_message or '没有可显示的结果正文。'}")
         self.update_buttons()

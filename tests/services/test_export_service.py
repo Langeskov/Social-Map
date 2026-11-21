@@ -158,6 +158,15 @@ def test_analysis_metadata_is_exported_but_results_need_opt_in(env):
     assert set(record["sources"]["person"]) == {str(env.person.id), str(env.partner.id)}
     assert "result" not in record and "context_snapshot" not in record
     assert record["result_included"] is False and record["context_snapshot_included"] is False
+    # Phase 13.3: telemetry rides in the exported run metadata (hashes/tokens only,
+    # never a credential value or a response body).
+    telemetry = record["scope"]["telemetry"]
+    assert telemetry["version"] == "1"
+    assert telemetry["request"]["provider_name"] == "fake"
+    assert len(telemetry["request"]["prompt_hash"]) == 64
+    dumped = json.dumps(data, ensure_ascii=False)
+    assert "sk-" not in dumped and "Authorization" not in dumped
+    assert "私有回答正文" not in json.dumps(data, ensure_ascii=False)
     assert "私有回答正文" not in json.dumps(data, ensure_ascii=False)
 
     explicit = export(env, "export-explicit", include_analysis_results=True,

@@ -9,6 +9,10 @@ from app.services.llm.gateway import CancelToken, LLMGateway
 from app.services.llm.provider import (ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_USER, ChatMessage,
                                        ChatRequest, ChatResponse, LLMProvider,
                                        OpenAICompatibleProvider, ProviderStatus)
+from app.services.llm.response_metadata import (FINISH_CATEGORIES, FINISH_CONTENT_FILTER,
+                                                FINISH_LENGTH, FINISH_STOP,
+                                                FINISH_UNAVAILABLE, finish_reason,
+                                                usage_summary)
 from app.services.llm.transport import FakeTransport, HttpResponse, UrllibTransport
 
 __all__ = [
@@ -18,5 +22,7 @@ __all__ = [
     "LLMCredentialError", "LLMError", "LLMGateway", "LLMNotFoundError", "LLMProvider",
     "LLMProviderConfig", "LLMRateLimitError", "LLMResponseError", "LLMServerError", "LLMTimeoutError",
     "OpenAICompatibleProvider", "ProviderStatus", "UrllibTransport",
+    "FINISH_CATEGORIES", "FINISH_CONTENT_FILTER", "FINISH_LENGTH", "FINISH_STOP",
+    "FINISH_UNAVAILABLE", "finish_reason", "usage_summary",
     "ROLE_ASSISTANT", "ROLE_SYSTEM", "ROLE_USER",
 ]

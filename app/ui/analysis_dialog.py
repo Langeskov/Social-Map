@@ -33,10 +33,12 @@ from app.domain.entities.reference_validation import VALID_FULL, VALID_LIMITED, 
 from app.domain.errors import DomainError
 from app.domain.validation import normalize_datetime
 from app.services.analysis_result_parser import parse_analysis_result
+from app.services.analysis_telemetry import telemetry_from_scope
 from app.services.context import (ALL_TIME, CUSTOM, LAST_7_DAYS, LAST_30_DAYS, LAST_90_DAYS,
                                  AnalysisRequest)
 from app.services.errors import DatabaseError
-from app.services.llm import CancelToken, LLMConfigError, LLMError, LLMProviderConfig
+from app.services.llm import (FINISH_CONTENT_FILTER, FINISH_LENGTH, FINISH_UNAVAILABLE,
+                              CancelToken, LLMConfigError, LLMError, LLMProviderConfig)
 from app.services.prompt import split_result_sections
 
 logger = logging.getLogger(__name__)
@@ -130,7 +132,100 @@ def display_sections(parsed, reference_checks=None):
     return sections
 
 
+def finish_status_note(telemetry) -> str:
+    """Short finish-reason note for the page message (truncation is not normal)."""
+    if not telemetry:
+        return ""
+    category = ((telemetry.get("response") or {}).get("finish_reason") or {}).get("category")
+    if category == FINISH_LENGTH:
+        return " · 结束原因 LENGTH（输出被长度限制截断，结果可能不完整）"
+    if category == FINISH_CONTENT_FILTER:
+        return " · 结束原因 CONTENT_FILTER（输出被内容过滤中断）"
+    return ""
+
+
+def finish_warning(telemetry) -> str | None:
+    """A visible warning when the provider stopped the answer early."""
+    note = finish_status_note(telemetry)
+    if not note:
+        return None
+    return ("输出被长度限制截断（finish_reason=length）：本次回答可能不完整，不能视为完整分析。"
+            if FINISH_LENGTH in note else
+            "输出被内容过滤中断（finish_reason=content_filter）：结果可能不完整。")
+
+
+def telemetry_metadata(telemetry) -> list:
+    """Readable (key, label, value) rows for the run telemetry (13.3)."""
+    telemetry = telemetry or None
+    request = (telemetry or {}).get("request") or {}
+    response = (telemetry or {}).get("response") or {}
+    execution = (telemetry or {}).get("execution") or {}
+    missing = "未记录（旧记录）"
+
+    def show(value):
+        return missing if telemetry is None or value is None else str(value)
+
+    finish = response.get("finish_reason") or {}
+    category = finish.get("category")
+    raw = finish.get("raw")
+    if telemetry is None:
+        finish_text = missing
+    elif category == FINISH_UNAVAILABLE or not category:
+        finish_text = "UNAVAILABLE（Provider 未返回 finish_reason）"
+    else:
+        finish_text = f"{category}（raw={raw}）" if raw and raw != category else category
+    usage = response.get("usage") or {}
+    if telemetry is None:
+        usage_text = missing
+    elif not usage.get("available"):
+        usage_text = "Provider 未返回 usage（unavailable）"
+    else:
+        def part(name):
+            value = usage.get(name)
+            return "—" if value is None else str(value)
+        usage_text = (f"prompt={part('prompt_tokens')} · "
+                      f"completion={part('completion_tokens')} · "
+                      f"total={part('total_tokens')}（Provider 实际值）")
+    estimate = request.get("estimated_context_tokens")
+    prompt_version = request.get("prompt_template_version")
+    prompt_hash = request.get("prompt_hash") or ""
+    context_hash = request.get("context_snapshot_hash") or ""
+    request_hash = request.get("request_hash") or ""
+    retry_count = execution.get("retry_count")
+    return [
+        ("结束原因", "结束原因", finish_text),
+        ("Token 用量", "Token 用量", usage_text),
+        ("上下文估算（离线，非实际用量）", "上下文估算（离线，非实际用量）",
+         missing if telemetry is None or estimate is None else f"{estimate} tokens"),
+        ("Prompt 版本", "Prompt 版本",
+         missing if not prompt_version else f"v{prompt_version} · hash {prompt_hash[:12]}…"),
+        ("上下文 Hash（SHA-256 前 12 位）", "上下文 Hash（SHA-256 前 12 位）",
+         missing if not context_hash else f"{context_hash[:12]}…"),
+        ("请求 Hash（SHA-256 前 12 位）", "请求 Hash（SHA-256 前 12 位）",
+         missing if not request_hash else f"{request_hash[:12]}…"),
+        ("重试次数", "重试次数",
+         missing if telemetry is None or retry_count is None else str(retry_count)),
+    ]
+
+
+def run_telemetry(run):
+    """Telemetry parsed from a stored run's scope JSON (``None`` for old runs)."""
+    try:
+        scope = json.loads(run.scope)
+    except (ValueError, TypeError):
+        return None
+    return telemetry_from_scope(scope)
+
+
 def reference_summary(checks) -> str:
+    """Counts of verified citations by class (full / limited / rejected)."""
+    checks = tuple(checks or ())
+    if not checks:
+        return "无结构化引用"
+    full = sum(1 for item in checks if item.reference.status == VALID_FULL)
+    limited = sum(1 for item in checks if item.reference.status == VALID_LIMITED)
+    rejected = len(checks) - full - limited
+    return f"{len(checks)} 条（完整 {full} · 有限 {limited} · 无效 {rejected}）"
     """Counts of verified citations by class (full / limited / rejected)."""
     checks = tuple(checks or ())
     if not checks:
@@ -1033,19 +1128,28 @@ class AnalysisResultDialog(QDialog):
         self.run = view.run
         self._dialogs = []
         self.reference_checks = tuple(reference_checks or ())
+        self.telemetry = view.telemetry
         self.parsed = parsed_result(self.run)
         self.sections = display_sections(self.parsed, self.reference_checks)
         self.setWindowTitle("分析结果 · " + self.run.analysis_type)
-        self.resize(1000, 760)
+        self.resize(1000, 800)
         layout = QVBoxLayout(self)
         meta = QFormLayout()
         self.fields = {}
-        for key, label, value in self.metadata_values(self.run, self.reference_checks):
+        for key, label, value in self.metadata_values(self.run, self.reference_checks,
+                                                      self.telemetry):
             self.fields[key] = plain_label(value)
             meta.addRow(label, self.fields[key])
         layout.addLayout(meta)
         self.status = plain_label(self.status_text(self.run))
         layout.addWidget(self.status)
+        self.finish_warning = None
+        warning = finish_warning(self.telemetry)
+        if warning:
+            # Early stop is not a successful completeness claim; it is surfaced.
+            self.finish_warning = plain_label(warning)
+            self.finish_warning.setObjectName("analysisFinishWarning")
+            layout.addWidget(self.finish_warning)
         self.parse_warnings = None
         if self.run.status == "SUCCEEDED" and self.parsed.warnings:
             # A parse warning is about presentation, never a model failure.
@@ -1095,26 +1199,29 @@ class AnalysisResultDialog(QDialog):
         layout.addLayout(rows)
 
     @staticmethod
-    def metadata_values(run, reference_checks=()):
+    def metadata_values(run, reference_checks=(), telemetry=None):
         try:
             scope = json.loads(run.scope)
         except (ValueError, TypeError):
             scope = {}
         include = scope.get("include", {})
         parsed = parse_analysis_result(run.result or "")
-        return [("分析类型", "分析类型", run.analysis_type),
+        rows = [("分析类型", "分析类型", run.analysis_type),
                 ("目标", "目标", f"{TARGET_LABELS.get(run.target_type, run.target_type)} · {run.target_id}"),
                 ("Provider", "Provider", run.provider_name),
                 ("模型", "模型", run.model_name),
                 ("状态", "状态", run.status),
                 ("解析状态", "解析状态", parsed.parse_status),
-                ("引用验证", "引用验证", reference_summary(reference_checks)),
-                ("创建时间", "创建时间（本地时区）", utc_text(run.created_at)),
-                ("完成时间", "完成时间（本地时区）", utc_text(run.completed_at)),
-                ("耗时", "耗时", duration_text(run.duration_ms)),
-                ("时间范围", "时间范围", str(scope.get("time_scope", "—"))),
-                ("包含", "包含", "、".join(f"{key}={'是' if value else '否'}"
-                                          for key, value in include.items()) or "—")]
+                ("引用验证", "引用验证", reference_summary(reference_checks))]
+        rows.extend(telemetry_metadata(telemetry))
+        rows.extend([
+            ("创建时间", "创建时间（本地时区）", utc_text(run.created_at)),
+            ("完成时间", "完成时间（本地时区）", utc_text(run.completed_at)),
+            ("耗时", "耗时", duration_text(run.duration_ms)),
+            ("时间范围", "时间范围", str(scope.get("time_scope", "—"))),
+            ("包含", "包含", "、".join(f"{key}={'是' if value else '否'}"
+                                      for key, value in include.items()) or "—")])
+        return rows
 
     @staticmethod
     def status_text(run):
@@ -1425,6 +1532,6 @@ __all__ = ["ANALYZE_LABELS", "AnalysisOptionsDialog", "AnalysisProgressDialog", 
            "TARGET_LABELS", "TIME_SCOPE_CHOICES", "TIME_SCOPE_LABELS", "analysis_center",
            "analysis_source_resolvers", "duration_text", "format_extra_headers", "launch_analysis",
            "parse_extra_headers", "parse_optional_datetime", "parse_optional_float", "parse_timeout",
-           "plain_label", "read_only_text", "display_sections", "parsed_result", "reference_summary", "result_section_text", "run_analysis", "run_operation",
-           "selected_section_text", "show_run_result", "source_line", "suggested_memory_content",
+           "plain_label", "read_only_text", "display_sections", "finish_status_note", "finish_warning", "parsed_result", "reference_summary", "result_section_text", "run_analysis", "run_operation", "run_telemetry",
+           "selected_section_text", "show_run_result", "source_line", "suggested_memory_content", "telemetry_metadata",
            "time_text", "track_dialog", "utc_text", "validate_credential_ref"]

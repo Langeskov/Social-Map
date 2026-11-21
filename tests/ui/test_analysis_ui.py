@@ -24,12 +24,14 @@ from PySide6.QtWidgets import QMessageBox
 
 from app.config.settings import AppConfig
 from app.domain.errors import DomainError
+from app.services.analysis_repositories import sql_analysis_repositories
 from app.services.application import create_application_services
 from app.services.context import ALL_TIME, CUSTOM, LAST_7_DAYS, AnalysisRequest
 from app.services.database import initialize_database
 from app.services.llm import (FakeTransport, HttpResponse, LLMConfigStore, LLMGateway,
                               LLMProviderConfig)
 from app.services.llm.gateway import CancelToken
+from app.services.unit_of_work import transaction
 from app.ui import analysis_dialog as dialog_module
 from app.ui.analysis_dialog import AnalysisOptionsDialog, ProviderSettingsDialog
 from app.ui.event_detail import ROLE
@@ -60,13 +62,16 @@ STRUCTURED_ANSWER = json.dumps({
 }, ensure_ascii=False)
 
 
-def chat_response(content=FOUR_SECTIONS, model="fake-model", status=200):
+def chat_response(content=FOUR_SECTIONS, model="fake-model", status=200, *,
+                  finish_reason="stop", usage=None):
     if status != 200:
         return HttpResponse(status, b'{"error":"unauthorized"}', {}, CHAT_URL)
-    body = json.dumps({"id": "chat-1", "model": model,
-                       "choices": [{"message": {"role": "assistant", "content": content},
-                                    "finish_reason": "stop"}]}).encode("utf-8")
-    return HttpResponse(status, body, {}, CHAT_URL)
+    payload = {"id": "chat-1", "model": model,
+               "choices": [{"message": {"role": "assistant", "content": content},
+                            "finish_reason": finish_reason}]}
+    if usage is not None:
+        payload["usage"] = usage
+    return HttpResponse(status, json.dumps(payload).encode(), {}, CHAT_URL)
 
 
 def models_response(names=("fake-model",)):
@@ -441,6 +446,62 @@ def test_structured_answer_references_are_verified_in_the_result_dialog(analysis
         facts = dialog.section_views["facts"].toPlainText()
         assert "VALID_FULL" in facts and "引用（未校验）" not in facts
         assert "1 条（完整 1 · 有限 0 · 无效 0）" in dialog.fields["引用验证"].text()
+    finally:
+        dialog.close()
+    c.qt_app.processEvents()
+    assert c.errors == []
+
+
+def test_result_dialog_shows_telemetry_and_truncation_warning(analysis_ui):
+    c = analysis_ui
+    run, _, _ = perform_run(
+        c, "PERSON", c.person.id,
+        response=chat_response(finish_reason="length",
+                               usage={"prompt_tokens": 7, "completion_tokens": 3,
+                                      "total_tokens": 10}))
+    assert len(c.transport.requests) == 1               # still exactly one user-triggered call
+    select_run(c.page, run.id)
+    dialog = c.page.show_result()
+    try:
+        assert dialog.fields["结束原因"].text().startswith("LENGTH")
+        usage = dialog.fields["Token 用量"].text()
+        assert "prompt=7" in usage and "total=10" in usage and "Provider 实际值" in usage
+        assert dialog.fields["上下文估算（离线，非实际用量）"].text().endswith("tokens")
+        assert "v2" in dialog.fields["Prompt 版本"].text()
+        assert dialog.fields["上下文 Hash（SHA-256 前 12 位）"].text() != "未记录（旧记录）"
+        assert dialog.fields["请求 Hash（SHA-256 前 12 位）"].text() != "未记录（旧记录）"
+        assert dialog.fields["重试次数"].text() == "0"
+        # Early stop is surfaced as a warning, never hidden as a normal completion.
+        assert dialog.finish_warning is not None
+        assert dialog.finish_warning.objectName() == "analysisFinishWarning"
+        assert "截断" in dialog.finish_warning.text()
+        assert "LENGTH" in c.page.message.text()
+        assert run.status == "SUCCEEDED"                 # the HTTP request did succeed
+    finally:
+        dialog.close()
+    c.qt_app.processEvents()
+    assert c.errors == []
+
+
+def test_old_run_without_telemetry_shows_unrecorded_fields(analysis_ui):
+    c = analysis_ui
+    run, _, _ = perform_run(c, "PERSON", c.person.id)
+    with transaction(c.runtime.sessions) as session:
+        repositories = sql_analysis_repositories(session)
+        stored = repositories.runs.get(c.ws, run.id)
+        scope = json.loads(stored.scope)
+        scope.pop("telemetry", None)
+        repositories.runs.update(replace(stored, scope=json.dumps(scope)))
+    c.page.refresh_button.click()
+    c.qt_app.processEvents()
+    select_run(c.page, run.id)
+    dialog = c.page.show_result()
+    try:
+        assert dialog.fields["结束原因"].text() == "未记录（旧记录）"
+        assert dialog.fields["Token 用量"].text() == "未记录（旧记录）"
+        assert dialog.fields["Prompt 版本"].text() == "未记录（旧记录）"
+        assert dialog.finish_warning is None
+        assert "LENGTH" not in c.page.message.text()
     finally:
         dialog.close()
     c.qt_app.processEvents()

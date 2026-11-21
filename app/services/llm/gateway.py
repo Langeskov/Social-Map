@@ -97,6 +97,15 @@ class LLMGateway:
 
     def chat(self, request: ChatRequest, *, provider_name: str | None = None,
              cancel: Cancellable | None = None) -> ChatResponse:
+        return self.chat_with_attempts(request, provider_name=provider_name, cancel=cancel)[0]
+
+    def chat_with_attempts(self, request: ChatRequest, *, provider_name: str | None = None,
+                           cancel: Cancellable | None = None) -> tuple[ChatResponse, int]:
+        """Like ``chat`` but also reports how many attempts were actually used.
+
+        The attempt count is the only accurate retry signal; callers must not
+        estimate one from timings.
+        """
         provider = self.provider(provider_name)
         last: LLMError | None = None
         for attempt in range(1, self.attempts + 1):
@@ -112,7 +121,7 @@ class LLMGateway:
                 continue
             if cancel is not None:
                 cancel.raise_if_cancelled()
-            return response
+            return response, attempt
         raise last or LLMError("模型调用失败。")
 
     def test_provider(self, name: str | None = None) -> ProviderStatus:

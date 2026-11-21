@@ -142,7 +142,7 @@ def test_timeline_separates_upcoming_from_past(case, qt_app):
                                  started_at=now + timedelta(days=30))
     case.window.navigation.setCurrentRow(0)
     qt_app.processEvents()
-    panel = case.window.dashboard_page.workspace_timeline
+    panel = case.window.events_page.workspace_timeline
     panel.set_person(ws, None)
     periods = {panel.table.item(row, 2).text(): panel.table.item(row, 6).text()
                for row in range(panel.table.rowCount())}
@@ -161,7 +161,7 @@ def test_timeline_filters_by_period_kind_and_person(case, qt_app):
     services.events.add_participant(ws, future.id, other.id)
     case.window.navigation.setCurrentRow(0)
     qt_app.processEvents()
-    panel = case.window.dashboard_page.workspace_timeline
+    panel = case.window.events_page.workspace_timeline
     panel.set_person(ws, None)
     assert panel.table.rowCount() == 2
 
@@ -191,7 +191,7 @@ def test_timeline_rows_keep_their_payload_and_columns(case, qt_app):
     event = services.events.create_event(ws, "有效载荷", "Meeting", occurred_on=date(2026, 5, 5))
     case.window.navigation.setCurrentRow(0)
     qt_app.processEvents()
-    panel = case.window.dashboard_page.workspace_timeline
+    panel = case.window.events_page.workspace_timeline
     panel.set_person(ws, None)
     assert panel.table.columnCount() == 7
     assert panel.table.horizontalHeaderItem(1).text() == "类型"

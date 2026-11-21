@@ -1,9 +1,15 @@
-"""Workspace-scoped Event CRUD and explicit participant/history association."""
+"""Workspace-scoped Event CRUD and explicit participant/history association.
+
+The page carries two clear entries (Phase 12.3): the **Events List** (event
+management and detail) and the **Workspace Timeline** (the whole Workspace's
+Events and relationship state changes, rendered by the shared ``TimelinePanel``
+from ``TimelineService`` projections - no second implementation, no hidden copy).
+"""
 from uuid import UUID
 from PySide6.QtCore import Signal, QTimer
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
-    QScrollArea, QSplitter, QTextEdit, QVBoxLayout, QWidget)
+    QScrollArea, QSplitter, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 from app.domain.errors import ConflictError, DomainError
 from app.ui.analysis_dialog import ANALYZE_LABELS, analysis_center
 from app.ui.context import ContextPage
@@ -11,6 +17,7 @@ from app.ui.design.widgets import ConflictBanner
 from app.ui.event_dialog import EventDialog
 from app.ui.evidence_panel import EvidencePanel
 from app.ui.event_detail import EventDetailView, event_time, history_text, plain_label, run_operation, ROLE
+from app.ui.timeline_panel import MODE_WORKSPACE, TimelinePanel
 
 
 class ParticipantDialog(QDialog):
@@ -76,6 +83,8 @@ class EventsPage(ContextPage, QWidget):
         self._detail_event_id = detail.event.id if detail else None
         self.workspace_id = detail.event.workspace_id if detail else services.initial_workspace.id
         self.current_detail = None
+        #: Non-modal detail windows; the shell tracker closes them on Workspace reset.
+        self._dialogs = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         title = plain_label("Events · 事件")
@@ -121,7 +130,7 @@ class EventsPage(ContextPage, QWidget):
         detail_layout.addWidget(self.detail_view)
         # The Evidence panel follows the detail view, so the single-event detail
         # opened from the Person Timeline shows it too.
-        self.evidence_panel = EvidencePanel(services, self)
+        self.evidence_panel = EvidencePanel(services, self, dialog_pool=self._dialogs)
         self.detail_view.detail_changed.connect(self.show_evidence)
         detail_layout.addWidget(self.evidence_panel)
         # Related history closes the chain, after Evidence.
@@ -149,7 +158,25 @@ class EventsPage(ContextPage, QWidget):
         scroll.setWidget(right)
         splitter.addWidget(scroll)
         splitter.setSizes([320, 620])
-        layout.addWidget(splitter, 1)
+        # Two clear entries: the Events List above, the Workspace Timeline beside
+        # it. The timeline is the shared TimelinePanel in workspace mode - the one
+        # visible home of the Workspace timeline since Phase 12.3.
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("eventsTabs")
+        self.list_tab = QWidget()
+        list_column = QVBoxLayout(self.list_tab)
+        list_column.setContentsMargins(0, 0, 0, 0)
+        list_column.addWidget(splitter)
+        self.tabs.addTab(self.list_tab, "Events List · 事件列表")
+        self.workspace_timeline = TimelinePanel(services, self, dialog_pool=self._dialogs)
+        self.workspace_timeline.setObjectName("workspaceTimeline")
+        self.workspace_timeline.mode = MODE_WORKSPACE
+        self.workspace_timeline.mode_combo.setCurrentIndex(
+            max(0, self.workspace_timeline.mode_combo.findData(MODE_WORKSPACE)))
+        self.workspace_timeline.mode_combo.hide()
+        self.tabs.addTab(self.workspace_timeline, "Workspace Timeline · 工作区时间线")
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        layout.addWidget(self.tabs, 1)
         self.status = plain_label("没有加载或生成演示数据。")
         layout.addWidget(self.status)
         self.conflict_banner = ConflictBanner(self)
@@ -160,6 +187,9 @@ class EventsPage(ContextPage, QWidget):
             left.hide()
             self.status.hide()
             self.conflict_banner.hide()
+            # A detached single-Event window has no Workspace timeline entry.
+            self.tabs.tabBar().hide()
+            self.tabs.setTabVisible(self.tabs.indexOf(self.workspace_timeline), False)
             for index in range(top.count()):
                 widget = top.itemAt(index).widget()
                 if widget is not None:
@@ -169,6 +199,7 @@ class EventsPage(ContextPage, QWidget):
             self.include_deleted.blockSignals(False)
         else:
             self.refresh_workspaces()
+            self.workspace_timeline.set_person(self.workspace_id, None)
         self.refresh_events()
 
     @staticmethod
@@ -229,12 +260,18 @@ class EventsPage(ContextPage, QWidget):
             return ""
         return self.current_detail.event.title
 
+    def _on_tab_changed(self, index):
+        """The Workspace timeline re-reads when its tab is opened."""
+        if self.tabs.widget(index) is self.workspace_timeline:
+            self.workspace_timeline.set_person(self.workspace_id, None)
+
     def clear_context(self):
         """Drop the selected Event, its evidence panel and the search text."""
         self.search_timer.stop()
         self.current_detail = None
         self.detail_view.set_detail(None)
         self.evidence_panel.set_event(None)
+        self.workspace_timeline.set_person(None, None)
         self.search.blockSignals(True)
         self.search.clear()
         self.search.blockSignals(False)
@@ -242,6 +279,7 @@ class EventsPage(ContextPage, QWidget):
 
     def load_workspace(self, workspace_id):
         self.refresh_events()
+        self.workspace_timeline.set_person(self.workspace_id, None)
 
     def sync_workspace_combo(self):
         index = self.workspace_combo.findData(str(self.workspace_id))
@@ -429,6 +467,8 @@ class EventsPage(ContextPage, QWidget):
 
     def changed(self, event_id=None):
         self.refresh_events(event_id)
+        if self._detail_event_id is None:
+            self.workspace_timeline.set_person(self.workspace_id, None)
         self.events_changed.emit(self.workspace_id)
 
     def create_event(self):

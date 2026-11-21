@@ -84,6 +84,8 @@ def test_opening_analysis_calls_no_model(case, qt_app):
 
 
 def test_a_running_analysis_locks_the_workspace_selector(case, qt_app):
+    """Unit-level lock mapping; the worker lifecycle is covered by real async
+    tests in tests/ui/test_analysis_ui.py (lock spans until QThread.finished)."""
     window, page = case.window, case.window.analysis_page
     others = case.services.workspaces.create("切换目标")
     window.workspace_context.refresh()
@@ -111,9 +113,16 @@ def test_analysis_history_rows_are_marked_as_derived(case, qt_app):
     page.load_workspaces()
     page.refresh()
     assert page.history_table.rowCount() == 1
-    assert page.workbench.layer.epistemic if False else page.workbench.layer.key == "INFERENCE"
-    text = " ".join(label.text() for label in page.findChildren(type(page.workbench_status)))
-    assert "你确认" in text or "分析" in text or True
+    assert page.workbench.layer.key == "INFERENCE"
+    # The workbench is explicit about the epistemic status: the model runs only
+    # after a click and its output is DERIVED, never a database fact.
+    assert "只有你点击后才会调用模型" in page.workbench.title_label.text()
+    # The recorded run is a real ledger row carrying the run entity.
+    payload = page.history_table.item(0, 0).data(0x0100)
+    assert payload.run.id == run.id
+    row_text = " ".join(page.history_table.item(0, column).text()
+                        for column in range(page.history_table.columnCount()))
+    assert run.status in row_text
     page.focus_run(run.id)
     assert page.current_view is not None
 

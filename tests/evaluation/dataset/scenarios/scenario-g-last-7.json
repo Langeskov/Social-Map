@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.0",
+  "dataset_version": "1.1",
   "scenario_id": "SCENARIO_G_LAST_7_DAYS",
   "scenario_version": "1",
   "title": "G1：7 天时间范围过滤",
@@ -12,43 +12,139 @@
     "analysis_type": "PERSON_PROFILE",
     "as_of": "2026-06-15T12:00:00+00:00",
     "time_scope": "LAST_7_DAYS",
-    "include": {"relationships": true, "history": true, "observations": true, "evidence": true, "memories": false},
+    "include": {
+      "relationships": true,
+      "history": true,
+      "observations": true,
+      "evidence": true,
+      "memories": false
+    },
     "max_context_tokens": 24000
   },
   "expected_facts": [
-    {"fact_id": "G7-F1", "source": {"type": "EVENT", "key": "ev-m3"}, "statement": "最近七天范围内只有六月十二日的筹备会一条事件记录。"}
+    {
+      "fact_id": "G7-F1",
+      "source": {
+        "type": "EVENT",
+        "key": "ev-m3"
+      },
+      "statement": "最近七天范围内只有六月十二日的筹备会一条事件记录。"
+    }
   ],
   "required_sources": [
-    {"type": "PERSON", "key": "chen-mo"},
-    {"type": "EVENT", "key": "ev-m3"}
+    {
+      "type": "PERSON",
+      "key": "chen-mo"
+    },
+    {
+      "type": "EVENT",
+      "key": "ev-m3"
+    }
   ],
   "forbidden_claims": [
-    {"claim_id": "G7-X1", "description": "把时间范围外的事件当作范围内事实。", "rationale": "范围外记录未提供给模型。"},
-    {"claim_id": "G7-X2", "description": "声称 as_of 之后的活动已经发生。", "rationale": "未来事件不是事实。"}
+    {
+      "claim_id": "G7-X1",
+      "description": "把时间范围外的事件当作范围内事实。",
+      "rationale": "范围外记录未提供给模型。"
+    },
+    {
+      "claim_id": "G7-X2",
+      "description": "声称 as_of 之后的活动已经发生。",
+      "rationale": "未来事件不是事实。"
+    }
   ],
   "expected_uncertainties": [
-    {"uncertainty_id": "G7-U1", "description": "时间范围之外的记录未提供给模型，不能对它们下任何结论。", "reason": "上下文受时间范围限制。"}
+    {
+      "uncertainty_id": "G7-U1",
+      "description": "时间范围之外的记录未提供给模型，不能对它们下任何结论。",
+      "reason": "上下文受时间范围限制。"
+    }
   ],
   "human_review": [
-    {"review_id": "G7-H1", "question": "模型是否意识到自己只看到了 7 天窗口内的记录？", "rationale": "范围意识需要人工确认。"}
+    {
+      "review_id": "G7-H1",
+      "question": "模型是否意识到自己只看到了 7 天窗口内的记录？",
+      "rationale": "范围意识需要人工确认。"
+    }
   ],
   "evaluation_dimensions": [
-    "DATASET_INTEGRITY", "CONTEXT_BINDING", "PROMPT_LEAKAGE", "TOKEN_ESTIMATE_BOUND",
-    "CONTEXT_ISOLATION", "CONTEXT_EXPECTATIONS", "PARSE_VALIDITY", "REQUIRED_SECTIONS",
-    "CITATION_VALIDITY", "CROSS_WORKSPACE_LEAKAGE", "FACT_COVERAGE", "UNSUPPORTED_CLAIMS",
-    "UNCERTAINTY_HANDLING", "EPISTEMIC_SEPARATION", "COMPLETENESS", "ROBUSTNESS"
+    "DATASET_INTEGRITY",
+    "CONTEXT_BINDING",
+    "PROMPT_LEAKAGE",
+    "TOKEN_ESTIMATE_BOUND",
+    "CONTEXT_ISOLATION",
+    "CONTEXT_EXPECTATIONS",
+    "PARSE_VALIDITY",
+    "REQUIRED_SECTIONS",
+    "CITATION_VALIDITY",
+    "CROSS_WORKSPACE_LEAKAGE",
+    "FACT_COVERAGE",
+    "UNSUPPORTED_CLAIMS",
+    "UNCERTAINTY_HANDLING",
+    "EPISTEMIC_SEPARATION",
+    "COMPLETENESS",
+    "ROBUSTNESS",
+    "REFERENCE_GROUNDING"
   ],
   "expected_context": {
-    "included": [{"type": "EVENT", "key": "ev-m3"}],
-    "excluded": [
-      {"type": "EVENT", "key": "ev-m100"},
-      {"type": "EVENT", "key": "ev-m60"},
-      {"type": "EVENT", "key": "ev-m20"},
-      {"type": "EVENT", "key": "ev-p5"}
+    "included": [
+      {
+        "type": "EVENT",
+        "key": "ev-m3"
+      }
     ],
-    "required_text": ["三日前的活动", "陈默"],
-    "forbidden_text": ["百日前的活动", "六十日前的活动", "二十日前的活动", "五日后的活动"],
+    "excluded": [
+      {
+        "type": "EVENT",
+        "key": "ev-m100"
+      },
+      {
+        "type": "EVENT",
+        "key": "ev-m60"
+      },
+      {
+        "type": "EVENT",
+        "key": "ev-m20"
+      },
+      {
+        "type": "EVENT",
+        "key": "ev-p5"
+      }
+    ],
+    "required_text": [
+      "三日前的活动",
+      "陈默"
+    ],
+    "forbidden_text": [
+      "百日前的活动",
+      "六十日前的活动",
+      "二十日前的活动",
+      "五日后的活动"
+    ],
     "expected_error": null
   },
-  "notes": "窗口 = [as_of-7d, as_of]；ev-p5 在 as_of 之后，任何范围都不包含。"
+  "notes": "窗口 = [as_of-7d, as_of]；ev-p5 在 as_of 之后，任何范围都不包含。",
+  "sample_output": {
+    "label": "G7 样例：窗口外引用未曝光 + 一条 FACT 缺引用",
+    "content": "{\"schema_version\": \"1\", \"facts\": [{\"content\": \"三天前的活动已发生\", \"references\": [{\"type\": \"EVENT\", \"id\": \"<<EVENT:ev-m3>>\"}]}, {\"content\": \"二十天前的活动\", \"references\": [{\"type\": \"EVENT\", \"id\": \"<<EVENT:ev-m20>>\"}]}, {\"content\": \"一条没有来源的断言\"}], \"observations\": [], \"interpretations\": [], \"uncertainties\": []}",
+    "expected_references": [
+      {
+        "ref_type": "EVENT",
+        "source": {
+          "type": "EVENT",
+          "key": "ev-m3"
+        },
+        "expected_status": "VALID_FULL"
+      },
+      {
+        "ref_type": "EVENT",
+        "source": {
+          "type": "EVENT",
+          "key": "ev-m20"
+        },
+        "expected_status": "SOURCE_NOT_EXPOSED"
+      }
+    ],
+    "expected_missing_fact_references": 1
+  }
 }

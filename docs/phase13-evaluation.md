@@ -59,7 +59,7 @@ tests/services/test_token_estimate.py     Token 估算边界（6.5 复核配套�
 | 字段 | 值 | 含义 |
 |---|---|---|
 | `schema_version` | `1` | 数据集/scenario JSON 结构版本；加载器不识别的版本直接拒绝 |
-| `dataset_version` | `1.0` | 本次发布的合成数据集内容版本；scenario 必须声明一致的值 |
+| `dataset_version` | `1.1` | 当前合成数据集内容版本；scenario 必须声明一致的值 |
 
 任何结构性修改都必须递增 `schema_version`（破坏性）或 `dataset_version`（内容），
 并在本文件登记。
@@ -108,6 +108,27 @@ tests/services/test_token_estimate.py     Token 估算边界（6.5 复核配套�
 - `required_text[]` / `forbidden_text[]`——渲染上下文的文本断言；
 - `expected_error`——`null` 或 `"CONTEXT_LIMIT"`（超限时必须显式拒绝并给出指引，
   不得静默截断）。
+
+`sample_output`（可选，13.2 起；dataset_version 1.1）：
+
+```json
+"sample_output": {
+  "label": "…",
+  "content": "<固定模型回答（JSON 字符串可用）>",
+  "expected_references": [
+    {"ref_type": "EVENT", "source": {"type": "EVENT", "key": "call-night"},
+     "expected_status": "VALID_FULL"},
+    {"ref_type": "EVENT", "literal_id": "00000000-0000-4000-8000-0000000000de",
+     "expected_status": "UNKNOWN_SOURCE"}
+  ],
+  "expected_missing_fact_references": 0
+}
+```
+
+`content` 可嵌入 `<<TYPE:key>>` 占位符，Runner 在解析前替换为真实 UUID；
+加载器保证占位符与 expected 引用都指向真实夹具来源、且确实出现在 content 中。
+`REFERENCE_GROUNDING` 指标用它确定性验证：真实引用、有限曝光、跨 Workspace、
+类型错误、未曝光、未知 UUID 与"FACT 条目缺少引用"。
 
 **语义注意**：`included/excluded` 验证的是来源集合，不是文本出现。Phase 13.1 实现
 来源曝光契约（§10）后，关系端点等 `IDENTITY_ONLY`／参与人 `PARTICIPANT_CONTEXT` 人物
@@ -162,8 +183,8 @@ selected_* / custom_start / custom_end / max_context_tokens）、`expected_facts
 |---|---|---|---|---|---|
 | PARSE_VALIDITY | Deterministic | 13.1 解析器解析 raw output | 否 | 否 | 13.1 起可评估在线输出；离线数据集无模型输出 → N/A |
 | REQUIRED_SECTIONS | Deterministic | 解析后必需小节检查（13.1） | 否 | 否 | 同上 |
-| CITATION_VALIDITY | Deterministic | 引用 UUID/类型/Run/Workspace/曝光核对（13.2） | 否 | 否 | 否（N/A，13.2） |
-| CROSS_WORKSPACE_LEAKAGE | Deterministic | 输出引用跨 Workspace 拒绝（13.2） | 否 | 否 | 否（N/A，13.2） |
+| CITATION_VALIDITY | Deterministic | 引用 UUID/类型/Run/Workspace/曝光核对（13.2） | 否 | 否 | 13.2 起可验证在线输出（离线样例见 REFERENCE_GROUNDING） |
+| CROSS_WORKSPACE_LEAKAGE | Deterministic | 输出引用跨 Workspace 拒绝（13.2） | 否 | 否 | 同上（WORKSPACE_MISMATCH 状态） |
 | FACT_COVERAGE | Reference-based | 对照 expected_facts 比对 | 是 | 否 | 否（N/A） |
 | UNSUPPORTED_CLAIMS | Reference-based / Human | 自动检查引用合法性 + 人工确认语义 | 是 | 是 | 否（N/A） |
 | UNCERTAINTY_HANDLING | Reference-based / Human | 对照 expected_uncertainties + 人工 | 是 | 是 | 否（N/A） |
@@ -177,6 +198,7 @@ selected_* / custom_start / custom_end / max_context_tokens）、`expected_facts
 | CONTEXT_ISOLATION | Deterministic | 异 Workspace 记录文本与 UUID 双缺席 | 否 | 否 | **是** |
 | CONTEXT_EXPECTATIONS | Deterministic | expected_context 逐条断言 | 否 | 否 | **是** |
 | EXPOSURE_MANIFEST | Deterministic | Manifest ↔ source_ids / 持久化来源 / 上下文标记一致 | 否 | 否 | **是（13.1 起）** |
+| REFERENCE_GROUNDING | Deterministic | 固定样例回答的引用状态与"缺引用"计数对照声明 | 是 | 否 | **是（13.2 起）** |
 
 N/A 行必须带原因（如"结果解析器在 Phase 13.1 提供"）。**禁止**把人工评价项
 伪装成程序已验证；**禁止**用 0 分代替 N/A。
@@ -331,10 +353,10 @@ CJK 实际约 `len/1.5 ≈ 0.67·len` tokens，而估算为 `0.5·len`——**�
 
 ## 11. 已知局限
 
-1. **模型输出指标在离线运行中仍为 N/A**：13.1 已提供解析器（`PARSE_VALIDITY` /
-   `REQUIRED_SECTIONS` 可评估在线输出），但离线数据集不含模型回答，因此离线运行
-   仍报告 N/A；引用合法性 `CITATION_VALIDITY` / `CROSS_WORKSPACE_LEAKAGE` 与
-   `FACT_COVERAGE` 等要等 13.2 校验器与参考答案比对。
+1. **模型输出指标**：13.1 提供解析器（`PARSE_VALIDITY` / `REQUIRED_SECTIONS` 可评估
+   在线输出），13.2 提供引用验证器（`CITATION_VALIDITY` / `CROSS_WORKSPACE_LEAKAGE`
+   可验证在线输出；离线运行用 `REFERENCE_GROUNDING` 对三个 Scenario 的固定样例回答做
+   确定性验证）。`FACT_COVERAGE` 等语义对照仍待人工/后续；
 2. ~~来源集合边界（既有契约）~~ **已由 13.0 补充决策取代**：采用 §10 的来源曝光
    契约——次要人物按 `IDENTITY_ONLY` / `PARTICIPANT_CONTEXT` 进入来源集合并由
    Manifest 记录曝光程度（13.1 实现）。13.0 数据集在 13.1 完成前按旧契约编写。
@@ -354,3 +376,4 @@ CJK 实际约 `len/1.5 ≈ 0.67·len` tokens，而估算为 `0.5·len`——**�
 | 13.0 | 建立评估框架、合成数据集（A–J / 17 Scenario）、指标注册表、离线 Runner、Token 估算保守化 |
 | 13.0 补充 | 来源曝光契约（Source Exposure Contract）纳入正式评估契约；`EXPOSURE_MANIFEST` 指标登记（N/A 待 13.1） |
 | 13.1 | 结构化结果契约 + 解析器；Context Entity Manifest 联动（标记 / source_ids / 持久化 / 数据集 required_sources）；`EXPOSURE_MANIFEST` 启用；可复现性改为掩码后逐字节比较 |
+| 13.2 | 引用验证器（9 种状态，Manifest + AnalysisSource 联合校验）；候选引用状态化（移除 accepted 布尔）；结果对话框逐条验证；数据集 1.1 + 样例输出；`REFERENCE_GROUNDING` 启用 |

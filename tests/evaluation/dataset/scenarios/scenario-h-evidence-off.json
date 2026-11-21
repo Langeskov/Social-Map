@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.0",
+  "dataset_version": "1.1",
   "scenario_id": "SCENARIO_H_EVIDENCE_OFF",
   "scenario_version": "1",
   "title": "H1：Evidence 未开启——仅元数据",
@@ -12,45 +12,126 @@
     "analysis_type": "PERSON_PROFILE",
     "as_of": "2026-06-15T12:00:00+00:00",
     "time_scope": "ALL",
-    "include": {"relationships": true, "history": true, "observations": true, "evidence": false, "memories": false},
+    "include": {
+      "relationships": true,
+      "history": true,
+      "observations": true,
+      "evidence": false,
+      "memories": false
+    },
     "max_context_tokens": 24000
   },
   "expected_facts": [
-    {"fact_id": "HOFF-F1", "source": {"type": "EVIDENCE", "key": "txt-h"}, "statement": "默认情况下模型只能看到证据的元数据，看不到原文与用户注释。"},
-    {"fact_id": "HOFF-F2", "source": {"type": "EVIDENCE", "key": "file-h"}, "statement": "附件只以媒体元数据的形式出现，二进制内容从不进入上下文。"}
+    {
+      "fact_id": "HOFF-F1",
+      "source": {
+        "type": "EVIDENCE",
+        "key": "txt-h"
+      },
+      "statement": "默认情况下模型只能看到证据的元数据，看不到原文与用户注释。"
+    },
+    {
+      "fact_id": "HOFF-F2",
+      "source": {
+        "type": "EVIDENCE",
+        "key": "file-h"
+      },
+      "statement": "附件只以媒体元数据的形式出现，二进制内容从不进入上下文。"
+    }
   ],
   "required_sources": [
-    {"type": "PERSON", "key": "he-lan"},
-    {"type": "EVENT", "key": "photo-walk"},
-    {"type": "EVIDENCE", "key": "txt-h"},
-    {"type": "EVIDENCE", "key": "file-h"}
+    {
+      "type": "PERSON",
+      "key": "he-lan"
+    },
+    {
+      "type": "EVENT",
+      "key": "photo-walk"
+    },
+    {
+      "type": "EVIDENCE",
+      "key": "txt-h"
+    },
+    {
+      "type": "EVIDENCE",
+      "key": "file-h"
+    }
   ],
   "forbidden_claims": [
-    {"claim_id": "HOFF-X1", "description": "把用户的注释当作原始材料引用。", "rationale": "注释与原文是两类材料。"},
-    {"claim_id": "HOFF-X2", "description": "声称看过附件的图片内容或二进制内容。", "rationale": "二进制内容从不进入上下文。"},
-    {"claim_id": "HOFF-X3", "description": "在未开启原文时复述证据原文的内容。", "rationale": "原文未提供，复述即编造。"}
+    {
+      "claim_id": "HOFF-X1",
+      "description": "把用户的注释当作原始材料引用。",
+      "rationale": "注释与原文是两类材料。"
+    },
+    {
+      "claim_id": "HOFF-X2",
+      "description": "声称看过附件的图片内容或二进制内容。",
+      "rationale": "二进制内容从不进入上下文。"
+    },
+    {
+      "claim_id": "HOFF-X3",
+      "description": "在未开启原文时复述证据原文的内容。",
+      "rationale": "原文未提供，复述即编造。"
+    }
   ],
   "expected_uncertainties": [
-    {"uncertainty_id": "HOFF-U1", "description": "未发送原文时，无法判断证据内容的完整含义。", "reason": "模型只看到元数据。"}
+    {
+      "uncertainty_id": "HOFF-U1",
+      "description": "未发送原文时，无法判断证据内容的完整含义。",
+      "reason": "模型只看到元数据。"
+    }
   ],
   "human_review": [
-    {"review_id": "HOFF-H1", "question": "模型是否把元数据误当作证据内容来复述？", "rationale": "语义误用只能人工识别。"}
+    {
+      "review_id": "HOFF-H1",
+      "question": "模型是否把元数据误当作证据内容来复述？",
+      "rationale": "语义误用只能人工识别。"
+    }
   ],
   "evaluation_dimensions": [
-    "DATASET_INTEGRITY", "CONTEXT_BINDING", "PROMPT_LEAKAGE", "TOKEN_ESTIMATE_BOUND",
-    "CONTEXT_ISOLATION", "CONTEXT_EXPECTATIONS", "PARSE_VALIDITY", "REQUIRED_SECTIONS",
-    "CITATION_VALIDITY", "CROSS_WORKSPACE_LEAKAGE", "FACT_COVERAGE", "UNSUPPORTED_CLAIMS",
-    "UNCERTAINTY_HANDLING", "EPISTEMIC_SEPARATION", "COMPLETENESS", "ROBUSTNESS"
+    "DATASET_INTEGRITY",
+    "CONTEXT_BINDING",
+    "PROMPT_LEAKAGE",
+    "TOKEN_ESTIMATE_BOUND",
+    "CONTEXT_ISOLATION",
+    "CONTEXT_EXPECTATIONS",
+    "PARSE_VALIDITY",
+    "REQUIRED_SECTIONS",
+    "CITATION_VALIDITY",
+    "CROSS_WORKSPACE_LEAKAGE",
+    "FACT_COVERAGE",
+    "UNSUPPORTED_CLAIMS",
+    "UNCERTAINTY_HANDLING",
+    "EPISTEMIC_SEPARATION",
+    "COMPLETENESS",
+    "ROBUSTNESS"
   ],
   "expected_context": {
     "included": [
-      {"type": "PERSON", "key": "he-lan"},
-      {"type": "EVENT", "key": "photo-walk"},
-      {"type": "EVIDENCE", "key": "txt-h"},
-      {"type": "EVIDENCE", "key": "file-h"}
+      {
+        "type": "PERSON",
+        "key": "he-lan"
+      },
+      {
+        "type": "EVENT",
+        "key": "photo-walk"
+      },
+      {
+        "type": "EVIDENCE",
+        "key": "txt-h"
+      },
+      {
+        "type": "EVIDENCE",
+        "key": "file-h"
+      }
     ],
     "excluded": [],
-    "required_text": ["拍摄记录", "器材清单", "仅元数据", "attachments="],
+    "required_text": [
+      "拍摄记录",
+      "器材清单",
+      "仅元数据",
+      "attachments="
+    ],
     "forbidden_text": [
       "拍摄记录原文",
       "用户注释",

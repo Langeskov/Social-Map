@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.0",
+  "dataset_version": "1.1",
   "scenario_id": "SCENARIO_A_COMPLETE",
   "scenario_version": "1",
   "title": "A：完整数据的来源引用与事实复述",
@@ -12,70 +12,246 @@
     "analysis_type": "PERSON_PROFILE",
     "as_of": "2026-06-15T12:00:00+00:00",
     "time_scope": "ALL",
-    "include": {"relationships": true, "history": true, "observations": true, "evidence": false, "memories": false},
+    "include": {
+      "relationships": true,
+      "history": true,
+      "observations": true,
+      "evidence": false,
+      "memories": false
+    },
     "max_context_tokens": 24000
   },
   "expected_facts": [
-    {"fact_id": "A-F1", "source": {"type": "PERSON", "key": "alice"}, "statement": "爱丽丝的职业是摄影师，供职于光影工作室。"},
-    {"fact_id": "A-F2", "source": {"type": "RELATIONSHIP", "key": "alice-bob"}, "statement": "爱丽丝与鲍勃的协作关系目前处于生效状态，其间曾暂停过一次。"},
-    {"fact_id": "A-F3", "source": {"type": "EVENT", "key": "call-night"}, "statement": "六月十二日晚爱丽丝参与了一次讨论排期的通话。"},
-    {"fact_id": "A-F4", "source": {"type": "EVENT", "key": "retro-meeting"}, "statement": "六月十四日爱丽丝与凯萝共同参加了项目复盘会。"},
-    {"fact_id": "A-F5", "source": {"type": "EVIDENCE", "key": "chat-retro"}, "statement": "系统保存有一条群聊证据，标注来源为光影工作室群。"},
-    {"fact_id": "A-F6", "source": {"type": "EVENT", "key": "obs-active"}, "statement": "用户曾记录观察称她近期更主动，该内容属于观察而非数据库事实。"}
+    {
+      "fact_id": "A-F1",
+      "source": {
+        "type": "PERSON",
+        "key": "alice"
+      },
+      "statement": "爱丽丝的职业是摄影师，供职于光影工作室。"
+    },
+    {
+      "fact_id": "A-F2",
+      "source": {
+        "type": "RELATIONSHIP",
+        "key": "alice-bob"
+      },
+      "statement": "爱丽丝与鲍勃的协作关系目前处于生效状态，其间曾暂停过一次。"
+    },
+    {
+      "fact_id": "A-F3",
+      "source": {
+        "type": "EVENT",
+        "key": "call-night"
+      },
+      "statement": "六月十二日晚爱丽丝参与了一次讨论排期的通话。"
+    },
+    {
+      "fact_id": "A-F4",
+      "source": {
+        "type": "EVENT",
+        "key": "retro-meeting"
+      },
+      "statement": "六月十四日爱丽丝与凯萝共同参加了项目复盘会。"
+    },
+    {
+      "fact_id": "A-F5",
+      "source": {
+        "type": "EVIDENCE",
+        "key": "chat-retro"
+      },
+      "statement": "系统保存有一条群聊证据，标注来源为光影工作室群。"
+    },
+    {
+      "fact_id": "A-F6",
+      "source": {
+        "type": "EVENT",
+        "key": "obs-active"
+      },
+      "statement": "用户曾记录观察称她近期更主动，该内容属于观察而非数据库事实。"
+    }
   ],
   "required_sources": [
-    {"type": "PERSON", "key": "alice"},
-    {"type": "PERSON", "key": "bob"},
-    {"type": "PERSON", "key": "carol"},
-    {"type": "RELATIONSHIP", "key": "alice-bob"},
-    {"type": "RELATIONSHIP", "key": "alice-carol"},
-    {"type": "EVENT", "key": "expo-prep"},
-    {"type": "EVENT", "key": "call-night"},
-    {"type": "EVENT", "key": "retro-meeting"},
-    {"type": "EVENT", "key": "obs-active"},
-    {"type": "EVIDENCE", "key": "chat-retro"},
-    {"type": "EVIDENCE", "key": "plan-file"}
+    {
+      "type": "PERSON",
+      "key": "alice"
+    },
+    {
+      "type": "PERSON",
+      "key": "bob"
+    },
+    {
+      "type": "PERSON",
+      "key": "carol"
+    },
+    {
+      "type": "RELATIONSHIP",
+      "key": "alice-bob"
+    },
+    {
+      "type": "RELATIONSHIP",
+      "key": "alice-carol"
+    },
+    {
+      "type": "EVENT",
+      "key": "expo-prep"
+    },
+    {
+      "type": "EVENT",
+      "key": "call-night"
+    },
+    {
+      "type": "EVENT",
+      "key": "retro-meeting"
+    },
+    {
+      "type": "EVENT",
+      "key": "obs-active"
+    },
+    {
+      "type": "EVIDENCE",
+      "key": "chat-retro"
+    },
+    {
+      "type": "EVIDENCE",
+      "key": "plan-file"
+    }
   ],
   "forbidden_claims": [
-    {"claim_id": "A-X1", "description": "为爱丽丝评定危险度、好感度或人格类别分数。", "rationale": "禁止无依据的人物评分与人格判断。"},
-    {"claim_id": "A-X2", "description": "把用户观察的内容直接写成数据库事实。", "rationale": "OBSERVATION 不是 FACT。"},
-    {"claim_id": "A-X3", "description": "声称计划中的展览已经举办或已确定成功举办。", "rationale": "该事件在 as_of 之后，尚未发生。"},
-    {"claim_id": "A-X4", "description": "编造上下文中不存在的事件、人物或时间。", "rationale": "不得编造记录。"}
+    {
+      "claim_id": "A-X1",
+      "description": "为爱丽丝评定危险度、好感度或人格类别分数。",
+      "rationale": "禁止无依据的人物评分与人格判断。"
+    },
+    {
+      "claim_id": "A-X2",
+      "description": "把用户观察的内容直接写成数据库事实。",
+      "rationale": "OBSERVATION 不是 FACT。"
+    },
+    {
+      "claim_id": "A-X3",
+      "description": "声称计划中的展览已经举办或已确定成功举办。",
+      "rationale": "该事件在 as_of 之后，尚未发生。"
+    },
+    {
+      "claim_id": "A-X4",
+      "description": "编造上下文中不存在的事件、人物或时间。",
+      "rationale": "不得编造记录。"
+    }
   ],
   "expected_uncertainties": [
-    {"uncertainty_id": "A-U1", "description": "未来的展览安排是否兑现尚不确定，因为它发生在 as_of 之后。", "reason": "未来计划不是已发生事实。"},
-    {"uncertainty_id": "A-U2", "description": "现有记录只覆盖少量沟通，筹备工作的完整进度无法确认。", "reason": "证据不足以确认完整进度。"}
+    {
+      "uncertainty_id": "A-U1",
+      "description": "未来的展览安排是否兑现尚不确定，因为它发生在 as_of 之后。",
+      "reason": "未来计划不是已发生事实。"
+    },
+    {
+      "uncertainty_id": "A-U2",
+      "description": "现有记录只覆盖少量沟通，筹备工作的完整进度无法确认。",
+      "reason": "证据不足以确认完整进度。"
+    }
   ],
   "human_review": [
-    {"review_id": "A-H1", "question": "推断是否把筹备会的讨论内容夸大为已经达成的结论？", "rationale": "因果跳跃检查只能人工完成。"},
-    {"review_id": "A-H2", "question": "是否把 OBSERVATION 与 FACT 分开陈述，并给推断注明依据与不确定性？", "rationale": "认识论分离需要人工确认。"}
+    {
+      "review_id": "A-H1",
+      "question": "推断是否把筹备会的讨论内容夸大为已经达成的结论？",
+      "rationale": "因果跳跃检查只能人工完成。"
+    },
+    {
+      "review_id": "A-H2",
+      "question": "是否把 OBSERVATION 与 FACT 分开陈述，并给推断注明依据与不确定性？",
+      "rationale": "认识论分离需要人工确认。"
+    }
   ],
   "evaluation_dimensions": [
-    "DATASET_INTEGRITY", "CONTEXT_BINDING", "PROMPT_LEAKAGE", "TOKEN_ESTIMATE_BOUND",
-    "CONTEXT_ISOLATION", "CONTEXT_EXPECTATIONS", "PARSE_VALIDITY", "REQUIRED_SECTIONS",
-    "CITATION_VALIDITY", "CROSS_WORKSPACE_LEAKAGE", "FACT_COVERAGE", "UNSUPPORTED_CLAIMS",
-    "UNCERTAINTY_HANDLING", "EPISTEMIC_SEPARATION", "COMPLETENESS", "ROBUSTNESS"
+    "DATASET_INTEGRITY",
+    "CONTEXT_BINDING",
+    "PROMPT_LEAKAGE",
+    "TOKEN_ESTIMATE_BOUND",
+    "CONTEXT_ISOLATION",
+    "CONTEXT_EXPECTATIONS",
+    "PARSE_VALIDITY",
+    "REQUIRED_SECTIONS",
+    "CITATION_VALIDITY",
+    "CROSS_WORKSPACE_LEAKAGE",
+    "FACT_COVERAGE",
+    "UNSUPPORTED_CLAIMS",
+    "UNCERTAINTY_HANDLING",
+    "EPISTEMIC_SEPARATION",
+    "COMPLETENESS",
+    "ROBUSTNESS",
+    "REFERENCE_GROUNDING"
   ],
   "expected_context": {
     "included": [
-      {"type": "PERSON", "key": "alice"},
-      {"type": "PERSON", "key": "bob"},
-      {"type": "PERSON", "key": "carol"},
-      {"type": "RELATIONSHIP", "key": "alice-bob"},
-      {"type": "RELATIONSHIP", "key": "alice-carol"},
-      {"type": "EVENT", "key": "expo-prep"},
-      {"type": "EVENT", "key": "call-night"},
-      {"type": "EVENT", "key": "retro-meeting"},
-      {"type": "EVENT", "key": "obs-active"},
-      {"type": "EVIDENCE", "key": "chat-retro"},
-      {"type": "EVIDENCE", "key": "plan-file"}
+      {
+        "type": "PERSON",
+        "key": "alice"
+      },
+      {
+        "type": "PERSON",
+        "key": "bob"
+      },
+      {
+        "type": "PERSON",
+        "key": "carol"
+      },
+      {
+        "type": "RELATIONSHIP",
+        "key": "alice-bob"
+      },
+      {
+        "type": "RELATIONSHIP",
+        "key": "alice-carol"
+      },
+      {
+        "type": "EVENT",
+        "key": "expo-prep"
+      },
+      {
+        "type": "EVENT",
+        "key": "call-night"
+      },
+      {
+        "type": "EVENT",
+        "key": "retro-meeting"
+      },
+      {
+        "type": "EVENT",
+        "key": "obs-active"
+      },
+      {
+        "type": "EVIDENCE",
+        "key": "chat-retro"
+      },
+      {
+        "type": "EVIDENCE",
+        "key": "plan-file"
+      }
     ],
     "excluded": [
-      {"type": "EVENT", "key": "expo-planned"},
-      {"type": "PERSON", "key": "outsider"},
-      {"type": "EVENT", "key": "outsider-event"}
+      {
+        "type": "EVENT",
+        "key": "expo-planned"
+      },
+      {
+        "type": "PERSON",
+        "key": "outsider"
+      },
+      {
+        "type": "EVENT",
+        "key": "outsider-event"
+      }
     ],
-    "required_text": ["爱丽丝", "鲍勃", "凯萝", "深夜通话", "群聊记录摘录", "场地平面图", "用户记录的观察（OBSERVATION）"],
+    "required_text": [
+      "爱丽丝",
+      "鲍勃",
+      "凯萝",
+      "深夜通话",
+      "群聊记录摘录",
+      "场地平面图",
+      "用户记录的观察（OBSERVATION）"
+    ],
     "forbidden_text": [
       "明天下午三点在工作室碰头",
       "用户注释：活动前一天的沟通记录",
@@ -86,5 +262,57 @@
     ],
     "expected_error": null
   },
-  "notes": "禁止推断：不得由单次通话推断关系亲密程度；不得由职业推断性格；不得为未来事件给出确定性结论。次要人物（鲍勃、凯萝）出现在上下文文本中，但按现行来源契约只有目标人物、关系、事件、证据进入本次来源集合。"
+  "notes": "禁止推断：不得由单次通话推断关系亲密程度；不得由职业推断性格；不得为未来事件给出确定性结论。次要人物（鲍勃、凯萝）出现在上下文文本中，但按现行来源契约只有目标人物、关系、事件、证据进入本次来源集合。",
+  "sample_output": {
+    "label": "A 样例：合法完整/有限引用 + 伪造与类型错误引用",
+    "content": "{\"schema_version\": \"1\", \"facts\": [{\"content\": \"深夜通话已发生\", \"references\": [{\"type\": \"EVENT\", \"id\": \"<<EVENT:call-night>>\"}, {\"type\": \"PERSON\", \"id\": \"<<PERSON:carol>>\"}]}, {\"content\": \"未来展览可能按期举行\", \"references\": [{\"type\": \"EVENT\", \"id\": \"<<EVENT:expo-planned>>\"}]}, {\"content\": \"外部人员的记录\", \"references\": [{\"type\": \"PERSON\", \"id\": \"<<PERSON:outsider>>\"}]}, {\"content\": \"伪造的类型引用\", \"references\": [{\"type\": \"EVENT\", \"id\": \"<<PERSON:carol>>\"}]}, {\"content\": \"不存在的对象\", \"references\": [{\"type\": \"EVENT\", \"id\": \"00000000-0000-4000-8000-0000000000de\"}]}], \"observations\": [], \"interpretations\": [{\"content\": \"展览安排可能变化\"}], \"uncertainties\": []}",
+    "expected_references": [
+      {
+        "ref_type": "EVENT",
+        "source": {
+          "type": "EVENT",
+          "key": "call-night"
+        },
+        "expected_status": "VALID_FULL"
+      },
+      {
+        "ref_type": "PERSON",
+        "source": {
+          "type": "PERSON",
+          "key": "carol"
+        },
+        "expected_status": "VALID_LIMITED"
+      },
+      {
+        "ref_type": "EVENT",
+        "source": {
+          "type": "EVENT",
+          "key": "expo-planned"
+        },
+        "expected_status": "SOURCE_NOT_EXPOSED"
+      },
+      {
+        "ref_type": "PERSON",
+        "source": {
+          "type": "PERSON",
+          "key": "outsider"
+        },
+        "expected_status": "WORKSPACE_MISMATCH"
+      },
+      {
+        "ref_type": "EVENT",
+        "source": {
+          "type": "PERSON",
+          "key": "carol"
+        },
+        "expected_status": "TYPE_MISMATCH"
+      },
+      {
+        "ref_type": "EVENT",
+        "literal_id": "00000000-0000-4000-8000-0000000000de",
+        "expected_status": "UNKNOWN_SOURCE"
+      }
+    ],
+    "expected_missing_fact_references": 0
+  }
 }

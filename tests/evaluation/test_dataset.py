@@ -191,6 +191,43 @@ def test_loading_dataset_never_touches_any_database(tmp_path, monkeypatch):
     load_dataset(DATASET_DIR)
 
 
+def test_sample_outputs_are_bound_to_real_fixture_sources(dataset):
+    scenarios = [item for item in dataset.scenarios if item.sample_output is not None]
+    assert {item.scenario_id for item in scenarios} == {
+        "SCENARIO_A_COMPLETE", "SCENARIO_D_CONFLICT", "SCENARIO_G_LAST_7_DAYS"}
+    for scenario in scenarios:
+        sample = scenario.sample_output
+        assert sample.expected_references
+        assert sample.label and sample.content
+        assert "REFERENCE_GROUNDING" in scenario.evaluation_dimensions
+
+
+def test_unknown_sample_placeholder_is_rejected(tmp_path):
+    target = _copy_dataset(tmp_path)
+    path = target / "scenarios" / "scenario-a-complete.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["sample_output"]["content"] = data["sample_output"]["content"].replace(
+        "<<EVENT:call-night>>", "<<EVENT:ghost-event>>")
+    data["sample_output"]["expected_references"][0]["source"]["key"] = "ghost-event"
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    with pytest.raises(DatasetError) as failure:
+        load_dataset(target)
+    assert any("ghost-event" in issue.message for issue in failure.value.issues)
+
+
+def test_sample_expectation_must_appear_in_the_content(tmp_path):
+    target = _copy_dataset(tmp_path)
+    path = target / "scenarios" / "scenario-a-complete.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["sample_output"]["expected_references"].append(
+        {"ref_type": "EVENT", "source": {"type": "EVENT", "key": "retro-meeting"},
+         "expected_status": "VALID_FULL"})
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    with pytest.raises(DatasetError) as failure:
+        load_dataset(target)
+    assert any("retro-meeting" in issue.message for issue in failure.value.issues)
+
+
 def _copy_dataset(tmp_path) -> Path:
     target = tmp_path / "dataset"
     shutil.copytree(DATASET_DIR, target)

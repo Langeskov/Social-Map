@@ -408,8 +408,9 @@ def test_structured_json_answer_shows_sections_raw_output_and_parse_status(analy
         assert dialog.fields["解析状态"].text() == "PARSED_JSON"
         assert "Tester 在 2026-05-01 参加 Meeting" in \
                dialog.section_views["facts"].toPlainText()
-        # Parsed references are shown but explicitly labelled as unvalidated.
-        assert "引用（未校验）" in dialog.section_views["facts"].toPlainText()
+        # Phase 13.2: the dialog receives verified references from the Service; a
+        # fabricated UUID is classified instead of being shown as trusted.
+        assert "UNKNOWN_SOURCE" in dialog.section_views["facts"].toPlainText()
         assert "依据不足，仅为可能" in dialog.section_views["interpretations"].toPlainText()
         # The raw answer is always available and byte-identical, never replaced.
         assert dialog.raw_output is not None
@@ -417,6 +418,29 @@ def test_structured_json_answer_shows_sections_raw_output_and_parse_status(analy
         assert dialog.parse_warnings is None
         assert dialog.sections["other"] == ""
         assert "PARSED_JSON" in c.page.message.text()
+    finally:
+        dialog.close()
+    c.qt_app.processEvents()
+    assert c.errors == []
+
+
+def test_structured_answer_references_are_verified_in_the_result_dialog(analysis_ui):
+    c = analysis_ui
+    answer = json.dumps({
+        "schema_version": "1",
+        "facts": [{"content": "活动记录已经发生",
+                   "references": [{"type": "EVENT", "id": str(c.event.id)}]}],
+        "observations": [], "interpretations": [], "uncertainties": [],
+    }, ensure_ascii=False)
+    run, _, _ = perform_run(c, "PERSON", c.person.id,
+                            response=chat_response(content=answer))
+    checks = c.services.analysis.reference_checks(c.ws, run.id)
+    assert [item.reference.status for item in checks] == ["VALID_FULL"]
+    dialog = c.page.show_result()
+    try:
+        facts = dialog.section_views["facts"].toPlainText()
+        assert "VALID_FULL" in facts and "引用（未校验）" not in facts
+        assert "1 条（完整 1 · 有限 0 · 无效 0）" in dialog.fields["引用验证"].text()
     finally:
         dialog.close()
     c.qt_app.processEvents()

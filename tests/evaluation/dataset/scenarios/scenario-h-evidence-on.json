@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.0",
+  "dataset_version": "1.1",
   "scenario_id": "SCENARIO_H_EVIDENCE_ON",
   "scenario_version": "1",
   "title": "H2：Evidence 开启——原文、注释与附件元数据分离",
@@ -12,43 +12,126 @@
     "analysis_type": "PERSON_PROFILE",
     "as_of": "2026-06-15T12:00:00+00:00",
     "time_scope": "ALL",
-    "include": {"relationships": true, "history": true, "observations": true, "evidence": true, "memories": false},
+    "include": {
+      "relationships": true,
+      "history": true,
+      "observations": true,
+      "evidence": true,
+      "memories": false
+    },
     "max_context_tokens": 24000
   },
   "expected_facts": [
-    {"fact_id": "HON-F1", "source": {"type": "EVIDENCE", "key": "txt-h"}, "statement": "开启原文后，证据原文与用户的注释是分开呈现的两类材料。"},
-    {"fact_id": "HON-F2", "source": {"type": "EVIDENCE", "key": "txt-h"}, "statement": "这条证据的原文来自助理笔记，注释由用户添加，两者来源不同。"},
-    {"fact_id": "HON-F3", "source": {"type": "EVIDENCE", "key": "file-h"}, "statement": "即使开启原文，附件的二进制内容仍然不会进入上下文。"}
+    {
+      "fact_id": "HON-F1",
+      "source": {
+        "type": "EVIDENCE",
+        "key": "txt-h"
+      },
+      "statement": "开启原文后，证据原文与用户的注释是分开呈现的两类材料。"
+    },
+    {
+      "fact_id": "HON-F2",
+      "source": {
+        "type": "EVIDENCE",
+        "key": "txt-h"
+      },
+      "statement": "这条证据的原文来自助理笔记，注释由用户添加，两者来源不同。"
+    },
+    {
+      "fact_id": "HON-F3",
+      "source": {
+        "type": "EVIDENCE",
+        "key": "file-h"
+      },
+      "statement": "即使开启原文，附件的二进制内容仍然不会进入上下文。"
+    }
   ],
   "required_sources": [
-    {"type": "PERSON", "key": "he-lan"},
-    {"type": "EVENT", "key": "photo-walk"},
-    {"type": "EVIDENCE", "key": "txt-h"},
-    {"type": "EVIDENCE", "key": "file-h"}
+    {
+      "type": "PERSON",
+      "key": "he-lan"
+    },
+    {
+      "type": "EVENT",
+      "key": "photo-walk"
+    },
+    {
+      "type": "EVIDENCE",
+      "key": "txt-h"
+    },
+    {
+      "type": "EVIDENCE",
+      "key": "file-h"
+    }
   ],
   "forbidden_claims": [
-    {"claim_id": "HON-X1", "description": "把用户的注释当作原始材料引用。", "rationale": "注释与原文是两类材料。"},
-    {"claim_id": "HON-X2", "description": "声称看过附件的图片内容或二进制内容。", "rationale": "二进制内容从不进入上下文。"},
-    {"claim_id": "HON-X3", "description": "把注释的推测成分当成原文记载的事实。", "rationale": "注释可能含推测与遗漏提示。"}
+    {
+      "claim_id": "HON-X1",
+      "description": "把用户的注释当作原始材料引用。",
+      "rationale": "注释与原文是两类材料。"
+    },
+    {
+      "claim_id": "HON-X2",
+      "description": "声称看过附件的图片内容或二进制内容。",
+      "rationale": "二进制内容从不进入上下文。"
+    },
+    {
+      "claim_id": "HON-X3",
+      "description": "把注释的推测成分当成原文记载的事实。",
+      "rationale": "注释可能含推测与遗漏提示。"
+    }
   ],
   "expected_uncertainties": [
-    {"uncertainty_id": "HON-U1", "description": "原文只覆盖助理整理的记录，可能存在遗漏，注释本身已提示这一点。", "reason": "材料自身的局限必须保留。"}
+    {
+      "uncertainty_id": "HON-U1",
+      "description": "原文只覆盖助理整理的记录，可能存在遗漏，注释本身已提示这一点。",
+      "reason": "材料自身的局限必须保留。"
+    }
   ],
   "human_review": [
-    {"review_id": "HON-H1", "question": "模型是否区分了原文与用户注释，没有把二者混为一谈？", "rationale": "引用归属需要人工确认。"}
+    {
+      "review_id": "HON-H1",
+      "question": "模型是否区分了原文与用户注释，没有把二者混为一谈？",
+      "rationale": "引用归属需要人工确认。"
+    }
   ],
   "evaluation_dimensions": [
-    "DATASET_INTEGRITY", "CONTEXT_BINDING", "PROMPT_LEAKAGE", "TOKEN_ESTIMATE_BOUND",
-    "CONTEXT_ISOLATION", "CONTEXT_EXPECTATIONS", "PARSE_VALIDITY", "REQUIRED_SECTIONS",
-    "CITATION_VALIDITY", "CROSS_WORKSPACE_LEAKAGE", "FACT_COVERAGE", "UNSUPPORTED_CLAIMS",
-    "UNCERTAINTY_HANDLING", "EPISTEMIC_SEPARATION", "COMPLETENESS", "ROBUSTNESS"
+    "DATASET_INTEGRITY",
+    "CONTEXT_BINDING",
+    "PROMPT_LEAKAGE",
+    "TOKEN_ESTIMATE_BOUND",
+    "CONTEXT_ISOLATION",
+    "CONTEXT_EXPECTATIONS",
+    "PARSE_VALIDITY",
+    "REQUIRED_SECTIONS",
+    "CITATION_VALIDITY",
+    "CROSS_WORKSPACE_LEAKAGE",
+    "FACT_COVERAGE",
+    "UNSUPPORTED_CLAIMS",
+    "UNCERTAINTY_HANDLING",
+    "EPISTEMIC_SEPARATION",
+    "COMPLETENESS",
+    "ROBUSTNESS"
   ],
   "expected_context": {
     "included": [
-      {"type": "PERSON", "key": "he-lan"},
-      {"type": "EVENT", "key": "photo-walk"},
-      {"type": "EVIDENCE", "key": "txt-h"},
-      {"type": "EVIDENCE", "key": "file-h"}
+      {
+        "type": "PERSON",
+        "key": "he-lan"
+      },
+      {
+        "type": "EVENT",
+        "key": "photo-walk"
+      },
+      {
+        "type": "EVIDENCE",
+        "key": "txt-h"
+      },
+      {
+        "type": "EVIDENCE",
+        "key": "file-h"
+      }
     ],
     "excluded": [],
     "required_text": [
@@ -57,7 +140,9 @@
       "含用户明确选择的原文",
       "attachments="
     ],
-    "forbidden_text": ["synthetic evaluation attachment payload"],
+    "forbidden_text": [
+      "synthetic evaluation attachment payload"
+    ],
     "expected_error": null
   },
   "notes": "原文行与注释行分别带「（事件：…）」与「（用户注释｜…）」标记。"

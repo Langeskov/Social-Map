@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.0",
+  "dataset_version": "1.1",
   "scenario_id": "SCENARIO_J_OVER_LIMIT",
   "scenario_version": "1",
   "title": "J2：超长上下文——超过预算上限",
@@ -12,23 +12,48 @@
     "analysis_type": "PERSON_PROFILE",
     "as_of": "2026-06-15T12:00:00+00:00",
     "time_scope": "ALL",
-    "include": {"relationships": true, "history": true, "observations": true, "evidence": true, "memories": false},
+    "include": {
+      "relationships": true,
+      "history": true,
+      "observations": true,
+      "evidence": true,
+      "memories": false
+    },
     "max_context_tokens": 1500
   },
   "expected_facts": [],
   "required_sources": [],
   "forbidden_claims": [
-    {"claim_id": "JO-X1", "description": "在上下文被拒绝时仍然输出分析。", "rationale": "没有上下文就没有合法分析。"},
-    {"claim_id": "JO-X2", "description": "为超出预算而未提供的内容补写摘要或猜测。", "rationale": "未提供即不可知。"}
+    {
+      "claim_id": "JO-X1",
+      "description": "在上下文被拒绝时仍然输出分析。",
+      "rationale": "没有上下文就没有合法分析。"
+    },
+    {
+      "claim_id": "JO-X2",
+      "description": "为超出预算而未提供的内容补写摘要或猜测。",
+      "rationale": "未提供即不可知。"
+    }
   ],
   "expected_uncertainties": [
-    {"uncertainty_id": "JO-U1", "description": "上下文超过预算上限时应提示用户缩小范围，而不是给出残缺分析。", "reason": "超限行为的正确预期是显式拒绝。"}
+    {
+      "uncertainty_id": "JO-U1",
+      "description": "上下文超过预算上限时应提示用户缩小范围，而不是给出残缺分析。",
+      "reason": "超限行为的正确预期是显式拒绝。"
+    }
   ],
   "human_review": [
-    {"review_id": "JO-H1", "question": "超限提示是否对用户清晰可操作？", "rationale": "提示质量需要人工确认。"}
+    {
+      "review_id": "JO-H1",
+      "question": "超限提示是否对用户清晰可操作？",
+      "rationale": "提示质量需要人工确认。"
+    }
   ],
   "evaluation_dimensions": [
-    "DATASET_INTEGRITY", "TOKEN_ESTIMATE_BOUND", "CONTEXT_EXPECTATIONS", "ROBUSTNESS"
+    "DATASET_INTEGRITY",
+    "TOKEN_ESTIMATE_BOUND",
+    "CONTEXT_EXPECTATIONS",
+    "ROBUSTNESS"
   ],
   "expected_context": {
     "included": [],

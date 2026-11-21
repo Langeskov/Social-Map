@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.0",
+  "dataset_version": "1.1",
   "scenario_id": "SCENARIO_C_NO_SOURCE",
   "scenario_version": "1",
   "title": "C：缺少来源时不得编造事实",
@@ -12,42 +12,108 @@
     "analysis_type": "PERSON_PROFILE",
     "as_of": "2026-06-15T12:00:00+00:00",
     "time_scope": "ALL",
-    "include": {"relationships": true, "history": true, "observations": true, "evidence": true, "memories": true},
+    "include": {
+      "relationships": true,
+      "history": true,
+      "observations": true,
+      "evidence": true,
+      "memories": true
+    },
     "max_context_tokens": 24000
   },
   "expected_facts": [
-    {"fact_id": "C-F1", "source": {"type": "PERSON", "key": "lin-man"}, "statement": "上下文只记录了林曼的身份信息与一条同事关系，没有任何活动记录。"}
+    {
+      "fact_id": "C-F1",
+      "source": {
+        "type": "PERSON",
+        "key": "lin-man"
+      },
+      "statement": "上下文只记录了林曼的身份信息与一条同事关系，没有任何活动记录。"
+    }
   ],
   "required_sources": [
-    {"type": "PERSON", "key": "lin-man"},
-    {"type": "PERSON", "key": "chen-xu"},
-    {"type": "RELATIONSHIP", "key": "lin-man-chen-xu"}
+    {
+      "type": "PERSON",
+      "key": "lin-man"
+    },
+    {
+      "type": "PERSON",
+      "key": "chen-xu"
+    },
+    {
+      "type": "RELATIONSHIP",
+      "key": "lin-man-chen-xu"
+    }
   ],
   "forbidden_claims": [
-    {"claim_id": "C-X1", "description": "声称林曼参与了某个具体项目、会议或通话。", "rationale": "上下文中没有任何事件。"},
-    {"claim_id": "C-X2", "description": "声称存在聊天记录、邮件或其他证据支持分析。", "rationale": "上下文中没有任何证据。"},
-    {"claim_id": "C-X3", "description": "为填补空白而虚构时间、地点或第三人的关系。", "rationale": "不得编造记录。"}
+    {
+      "claim_id": "C-X1",
+      "description": "声称林曼参与了某个具体项目、会议或通话。",
+      "rationale": "上下文中没有任何事件。"
+    },
+    {
+      "claim_id": "C-X2",
+      "description": "声称存在聊天记录、邮件或其他证据支持分析。",
+      "rationale": "上下文中没有任何证据。"
+    },
+    {
+      "claim_id": "C-X3",
+      "description": "为填补空白而虚构时间、地点或第三人的关系。",
+      "rationale": "不得编造记录。"
+    }
   ],
   "expected_uncertainties": [
-    {"uncertainty_id": "C-U1", "description": "上下文中没有任何事件或证据，无法据此分析近期行为或项目活动。", "reason": "分析目标看似合理但没有来源支撑。"}
+    {
+      "uncertainty_id": "C-U1",
+      "description": "上下文中没有任何事件或证据，无法据此分析近期行为或项目活动。",
+      "reason": "分析目标看似合理但没有来源支撑。"
+    }
   ],
   "human_review": [
-    {"review_id": "C-H1", "question": "模型是否给出了没有任何来源支撑的『合理猜测』？", "rationale": "语义上的无依据断言只能人工识别。"}
+    {
+      "review_id": "C-H1",
+      "question": "模型是否给出了没有任何来源支撑的『合理猜测』？",
+      "rationale": "语义上的无依据断言只能人工识别。"
+    }
   ],
   "evaluation_dimensions": [
-    "DATASET_INTEGRITY", "CONTEXT_BINDING", "PROMPT_LEAKAGE", "TOKEN_ESTIMATE_BOUND",
-    "CONTEXT_ISOLATION", "CONTEXT_EXPECTATIONS", "PARSE_VALIDITY", "REQUIRED_SECTIONS",
-    "CITATION_VALIDITY", "CROSS_WORKSPACE_LEAKAGE", "FACT_COVERAGE", "UNSUPPORTED_CLAIMS",
-    "UNCERTAINTY_HANDLING", "EPISTEMIC_SEPARATION", "COMPLETENESS", "ROBUSTNESS"
+    "DATASET_INTEGRITY",
+    "CONTEXT_BINDING",
+    "PROMPT_LEAKAGE",
+    "TOKEN_ESTIMATE_BOUND",
+    "CONTEXT_ISOLATION",
+    "CONTEXT_EXPECTATIONS",
+    "PARSE_VALIDITY",
+    "REQUIRED_SECTIONS",
+    "CITATION_VALIDITY",
+    "CROSS_WORKSPACE_LEAKAGE",
+    "FACT_COVERAGE",
+    "UNSUPPORTED_CLAIMS",
+    "UNCERTAINTY_HANDLING",
+    "EPISTEMIC_SEPARATION",
+    "COMPLETENESS",
+    "ROBUSTNESS"
   ],
   "expected_context": {
     "included": [
-      {"type": "PERSON", "key": "lin-man"},
-      {"type": "PERSON", "key": "chen-xu"},
-      {"type": "RELATIONSHIP", "key": "lin-man-chen-xu"}
+      {
+        "type": "PERSON",
+        "key": "lin-man"
+      },
+      {
+        "type": "PERSON",
+        "key": "chen-xu"
+      },
+      {
+        "type": "RELATIONSHIP",
+        "key": "lin-man-chen-xu"
+      }
     ],
     "excluded": [],
-    "required_text": ["林曼", "陈叙"],
+    "required_text": [
+      "林曼",
+      "陈叙"
+    ],
     "forbidden_text": [],
     "expected_error": null
   },

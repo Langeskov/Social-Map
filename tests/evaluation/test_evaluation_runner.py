@@ -103,6 +103,38 @@ def test_na_and_fail_are_different_states(dataset, tmp_path):
     assert result.metric("FACT_COVERAGE").reason
 
 
+def test_reference_grounding_checks_sample_outputs(full_run):
+    results = _by_id(full_run)
+    scenario_a = results["SCENARIO_A_COMPLETE"].metric("REFERENCE_GROUNDING")
+    assert scenario_a is not None and scenario_a.status == PASS
+    statuses = set(scenario_a.details["references"].values())
+    assert {"VALID_FULL", "VALID_LIMITED", "SOURCE_NOT_EXPOSED",
+            "WORKSPACE_MISMATCH", "TYPE_MISMATCH", "UNKNOWN_SOURCE"} <= statuses
+    conflict = results["SCENARIO_D_CONFLICT"].metric("REFERENCE_GROUNDING")
+    assert conflict is not None and conflict.status == PASS
+    assert set(conflict.details["references"].values()) == {"VALID_FULL"}
+    # A fact entry without any reference is counted, not silently ignored.
+    window = results["SCENARIO_G_LAST_7_DAYS"].metric("REFERENCE_GROUNDING")
+    assert window is not None and window.status == PASS
+    assert window.details["missing_fact_references"] == 1
+    assert "SOURCE_NOT_EXPOSED" in set(window.details["references"].values())
+
+
+def test_reference_grounding_detects_a_wrong_expectation(dataset, tmp_path):
+    target = tmp_path / "dataset"
+    shutil.copytree(DATASET_DIR, target)
+    path = target / "scenarios" / "scenario-a-complete.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["sample_output"]["expected_references"][0]["expected_status"] = "VALID_LIMITED"
+    path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+    broken = load_dataset(target)
+    result = run_scenario(broken.scenario("SCENARIO_A_COMPLETE"), broken,
+                          work_dir=tmp_path / "work")
+    metric = result.metric("REFERENCE_GROUNDING")
+    assert metric.status == FAIL
+    assert "期望 VALID_LIMITED，实际 VALID_FULL" in metric.reason
+
+
 # ------------------------------------------------------- reproducibility
 def test_same_inputs_reproduce_same_results(dataset, tmp_path):
     ids = ("SCENARIO_A_COMPLETE", "SCENARIO_G_ALL", "SCENARIO_I_MEMORY_ON")

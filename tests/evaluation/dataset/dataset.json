@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "dataset_id": "social-map-analysis-eval",
-  "dataset_version": "1.0",
+  "dataset_version": "1.1",
   "title": "Social-Map Analysis 离线评估数据集",
   "description": "完全虚构的合成数据集（Scenario A–J）：完整数据、稀疏数据、缺少来源、矛盾记录、FACT/OBSERVATION/INFERENCE 边界、关系变化、时间范围、Evidence 边界、Memory 边界、超长上下文。禁止写入任何真实个人资料。",
   "synthetic": true,

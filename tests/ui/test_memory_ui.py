@@ -37,13 +37,15 @@ from app.services.database import initialize_database
 from app.services.llm import (FakeTransport, HttpResponse, LLMConfigStore, LLMGateway,
                               LLMProviderConfig)
 from app.ui.analysis_dialog import MemoryConfirmDialog
-from app.ui.analysis_page import CANDIDATE_ACCEPTED, CANDIDATE_REJECTED
+from app.ui.analysis_page import (CANDIDATE_REJECTED, CANDIDATE_VALID_FULL,
+                                  CANDIDATE_VALID_LIMITED)
 from app.ui.main_window import MainWindow
 from app.ui.memory_panel import MemoryEditDialog, MemoryPanel, MemoryWorkspaceDialog
 from tests.ui.test_analysis_ui import FOUR_SECTIONS, chat_response
 
 ROLE = Qt.ItemDataRole.UserRole
 MARKER_EVENT = "[EVENT:{event}]"
+MARKER_PERSON = "[PERSON:{person}]"
 MARKER_STRAY_EVIDENCE = "[EVIDENCE:{evidence}]"
 PRIVATE_CONTENT = "private-memory-content-must-not-be-logged"
 SOURCE_KINDS = ("PERSON", "RELATIONSHIP", "EVENT", "EVIDENCE")
@@ -242,55 +244,63 @@ def test_the_shell_routes_the_evidence_branch_to_the_owning_event(memory_ui):
 
 # ------------------------------------------------------- 2. candidate references
 
-def test_candidates_are_labelled_and_only_accepted_ones_are_actionable(memory_ui):
+def test_candidates_are_labelled_with_verification_status(memory_ui):
     c = memory_ui
     original = run_analysis(c, "EVENT", c.event.id)
-    # One marker points at a real source of this run, one at an evidence that is not.
+    # Three citations: the event itself (full exposure), its participant person
+    # (limited exposure), and an evidence that is not a source of this run.
     result = (FOUR_SECTIONS + "\n\n## 引用\n- 会议事件 " + MARKER_EVENT.format(event=c.event.id)
+              + "\n- 参与人 " + MARKER_PERSON.format(person=c.person.id)
               + "\n- 另一条证据 " + MARKER_STRAY_EVIDENCE.format(evidence=uuid4()))
     run = patched_result(c, original, result)
     show_run(c, run)
 
     candidates = c.services.memories.candidate_references(c.ws, run.id)
-    assert len(candidates) == 2
-    accepted = [item for item in candidates if item.accepted]
-    rejected = [item for item in candidates if not item.accepted]
-    assert [item.entity_type for item in accepted] == ["EVENT"]
-    assert accepted[0].entity_id == c.event.id
-    assert [item.entity_type for item in rejected] == ["EVIDENCE"]
+    assert len(candidates) == 3
+    statuses = {item.entity_type: item.status for item in candidates}
+    assert statuses["EVENT"] == "VALID_FULL"
+    assert statuses["PERSON"] == "VALID_LIMITED"      # participant: limited info only
+    assert statuses["EVIDENCE"] == "UNKNOWN_SOURCE"   # forged uuid: not a source
+    assert all(item.reason for item in candidates)
 
-    assert c.page.candidates.rowCount() == 2
-    verdicts = [c.page.candidates.item(row, 2).text() for row in range(2)]
-    assert verdicts.count(CANDIDATE_ACCEPTED) == 1
+    assert c.page.candidates.rowCount() == 3
+    verdicts = [c.page.candidates.item(row, 2).text() for row in range(3)]
+    assert verdicts.count(CANDIDATE_VALID_FULL) == 1
+    assert verdicts.count(CANDIDATE_VALID_LIMITED) == 1
     assert verdicts.count(CANDIDATE_REJECTED) == 1
     assert "候选" in c.page.candidate_note.text()
-    assert "被接受 1" in c.page.candidate_note.text()
+    assert "有效完整 1" in c.page.candidate_note.text()
+    assert "有效有限 1" in c.page.candidate_note.text()
     assert "无效 1" in c.page.candidate_note.text()
     assert "不会自动创建 Memory" in c.page.candidate_note.text()
-    # Only the accepted row carries a jump target; the rejected row has none.
-    targets = [c.page.candidates.item(row, 1).data(ROLE) for row in range(2)]
-    assert sum(1 for item in targets if item is not None) == 1
-    accepted_row = targets.index(next(item for item in targets if item is not None))
-    assert c.page.candidates.item(accepted_row, 2).text() == CANDIDATE_ACCEPTED
-    assert c.page.candidates.item(accepted_row, 1).text().startswith("Meeting")
+    # Verified rows (full and limited) carry a jump target; the rejected row has none.
+    targets = [c.page.candidates.item(row, 1).data(ROLE) for row in range(3)]
+    assert sum(1 for item in targets if item is not None) == 2
+    full_row = next(row for row in range(3)
+                    if c.page.candidates.item(row, 2).text() == CANDIDATE_VALID_FULL)
+    limited_row = next(row for row in range(3)
+                       if c.page.candidates.item(row, 2).text() == CANDIDATE_VALID_LIMITED)
+    assert "VALID_FULL" in c.page.candidates.item(full_row, 3).text()
+    assert "VALID_LIMITED" in c.page.candidates.item(limited_row, 3).text()
+    assert "有限" in c.page.candidates.item(limited_row, 2).text()
     # Showing candidates writes nothing: no Memory, no fact change.
     assert c.memories.list_all(c.ws) == []
     assert c.services.events.detail(c.ws, c.event.id).event.id == c.event.id
     assert c.errors == []
 
 
-def test_an_accepted_candidate_jumps_and_a_rejected_one_cannot(memory_ui):
+def test_a_valid_candidate_jumps_and_a_rejected_one_cannot(memory_ui):
     c = memory_ui
     original = run_analysis(c, "EVENT", c.event.id)
-    result = "## 寮曠敤\n- " + MARKER_EVENT.format(event=c.event.id) + "\n- " \
-             + MARKER_STRAY_EVIDENCE.format(evidence=uuid4())
+    result = "## 引用\n- " + MARKER_EVENT.format(event=c.event.id) + "\n- " \
+             + MARKER_EVENT.format(event=uuid4())
     run = patched_result(c, original, result)
     show_run(c, run)
     assert c.page.candidates.rowCount() == 2
     assert c.page.candidates.currentRow() < 0              # no row is selected as an action
     assert c.page.open_candidate() is None                 # nothing to activate
     for row in range(c.page.candidates.rowCount()):
-        if c.page.candidates.item(row, 2).text() == CANDIDATE_ACCEPTED:
+        if c.page.candidates.item(row, 2).text() == CANDIDATE_VALID_FULL:
             c.page.candidates.selectRow(row)
             break
     c.page.open_candidate()

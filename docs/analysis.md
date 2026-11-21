@@ -121,6 +121,25 @@ Provider 不支持 JSON mode 时也按普通文本返回，解析器负责降级
 - 解析出的引用只是**结构**：是否真实存在、是否属于本次 Run、曝光等级是否足够，
   由 Phase 13.2 的验证器判定。
 
+## 来源引用验证（Phase 13.2）
+
+引用验证只回答一个问题：**这条引用是否合法**；它不判断句子的语义是否被材料支持。
+
+- 实现：`app/services/reference_verification.py` 的 `ReferenceVerifier`，使用
+  `AnalysisSource`（本次运行来源集合）+ `Context Entity Manifest`（曝光等级）+
+  跨 Workspace 只读查找（`ReferenceLookupRepository`）；同一验证器同时服务
+  候选引用、结果对话框与离线评估 Runner，不存在第二套 accepted 规则。
+- 状态（互斥，附原因）：`VALID_FULL`、`VALID_LIMITED`、`INVALID_FORMAT`、
+  `UNKNOWN_SOURCE`、`NOT_IN_RUN`、`WORKSPACE_MISMATCH`、`TYPE_MISMATCH`、
+  `DELETED_SOURCE`、`SOURCE_NOT_EXPOSED`。
+- `VALID_LIMITED` 表示实体只被有限曝光（IDENTITY_ONLY / PARTICIPANT_CONTEXT /
+  METADATA_ONLY / EVENT_REFERENCE）或旧快照无 Manifest——**旧记录不升级为
+  VALID_FULL**，也不回填。
+- UI：结果对话框逐条显示引用状态；候选引用表显示"有效（完整/有限曝光）/无效（状态 ·
+  原因）"，只有有效引用可跳转；解析出的 FACT 条目缺少引用时不会被补造。
+- 确定性检查与语义评价分离：引用存在/归属/类型/曝光可自动判定；"这条推断是否真的
+  由证据支持"只能人工复核，Phase 13.2 不声称能自动证明。
+
 ## AnalysisRun 与 AnalysisSource
 
 `analysis_run`：id、workspace_id、target_type、target_id、analysis_type、provider_name、model_name、scope、status、context_snapshot、result、error_message、created_at／started_at／completed_at／duration_ms。状态 `PENDING/RUNNING/SUCCEEDED/FAILED/CANCELLED`。**不保存 API Key**（scope 里只有 `credential_ref` 文本）。

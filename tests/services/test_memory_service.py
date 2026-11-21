@@ -10,6 +10,8 @@ from sqlalchemy import func, select
 
 from app.config.settings import AppConfig
 from app.domain.entities import Memory
+from app.domain.entities.reference_validation import (INVALID_FORMAT, UNKNOWN_SOURCE,
+                                                      VALID_FULL)
 from app.domain.errors import DomainError, NotFoundError
 from app.services.application import create_application_services
 from app.services.context import ALL_TIME, AnalysisRequest
@@ -120,12 +122,14 @@ def test_candidate_references_are_validated_before_being_trusted(env):
     env.transport.set_default(chat_response(text))
     second = analyze(env)
     candidates = env.services.memories.candidate_references(env.ws, second.id)
-    accepted = {item.raw for item in candidates if item.accepted}
-    rejected = {item.raw: item.reason for item in candidates if not item.accepted}
-    assert f"[EVENT:{env.event.id}]" in accepted
-    assert f"[PERSON:{env.person.id}]" in accepted
-    assert forged in rejected and outside in rejected
-    assert all("来源" in reason for reason in rejected.values())
+    by_raw = {item.raw: item for item in candidates}
+    # Phase 13.2: statuses replace the old accepted boolean; both citations are
+    # legitimate and fully exposed in this person-target context.
+    assert by_raw[f"[EVENT:{env.event.id}]"].status == VALID_FULL
+    assert by_raw[f"[PERSON:{env.person.id}]"].status == VALID_FULL
+    assert by_raw[forged].status == UNKNOWN_SOURCE
+    assert by_raw[outside].status == UNKNOWN_SOURCE
+    assert all(item.reason for item in by_raw.values())
     # Parsing never writes anything and never becomes a source.
     with transaction(env.runtime.sessions) as session:
         assert session.scalar(select(func.count()).select_from(MemoryModel)) == 0
@@ -141,7 +145,7 @@ def test_candidate_references_ignore_unparsable_markers(env):
     env.transport.set_default(chat_response("引用 [EVENT:not-a-uuid] 与 [UNKNOWN:abc] 结束"))
     run = analyze(env)
     candidates = env.services.memories.candidate_references(env.ws, run.id)
-    assert [item.accepted for item in candidates] == [False]
+    assert [item.status for item in candidates] == [INVALID_FORMAT]
     assert candidates[0].entity_type == "EVENT"
     assert candidates[0].entity_id is None
 

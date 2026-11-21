@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.0",
+  "dataset_version": "1.1",
   "scenario_id": "SCENARIO_I_MEMORY_DEFAULT",
   "scenario_version": "1",
   "title": "I1：Memory 默认关闭",
@@ -12,45 +12,117 @@
     "analysis_type": "PERSON_PROFILE",
     "as_of": "2026-06-15T12:00:00+00:00",
     "time_scope": "ALL",
-    "include": {"relationships": true, "history": true, "observations": true, "evidence": true, "memories": false},
+    "include": {
+      "relationships": true,
+      "history": true,
+      "observations": true,
+      "evidence": true,
+      "memories": false
+    },
     "max_context_tokens": 24000
   },
   "expected_facts": [
-    {"fact_id": "IDEF-F1", "source": {"type": "EVENT", "key": "tea"}, "statement": "上下文包含六月十日的茶叙记录。"}
+    {
+      "fact_id": "IDEF-F1",
+      "source": {
+        "type": "EVENT",
+        "key": "tea"
+      },
+      "statement": "上下文包含六月十日的茶叙记录。"
+    }
   ],
   "required_sources": [
-    {"type": "PERSON", "key": "yi-lian"},
-    {"type": "EVENT", "key": "tea"}
+    {
+      "type": "PERSON",
+      "key": "yi-lian"
+    },
+    {
+      "type": "EVENT",
+      "key": "tea"
+    }
   ],
   "forbidden_claims": [
-    {"claim_id": "IDEF-X1", "description": "把 Memory 内容当作数据库事实陈述。", "rationale": "Memory 不是事实。"},
-    {"claim_id": "IDEF-X2", "description": "引用未生效或已过期的 Memory 内容。", "rationale": "过期与未生效的记忆不可用。"},
-    {"claim_id": "IDEF-X3", "description": "在用户未开启 Memory 时引用任何记忆内容。", "rationale": "默认关闭是硬边界。"}
+    {
+      "claim_id": "IDEF-X1",
+      "description": "把 Memory 内容当作数据库事实陈述。",
+      "rationale": "Memory 不是事实。"
+    },
+    {
+      "claim_id": "IDEF-X2",
+      "description": "引用未生效或已过期的 Memory 内容。",
+      "rationale": "过期与未生效的记忆不可用。"
+    },
+    {
+      "claim_id": "IDEF-X3",
+      "description": "在用户未开启 Memory 时引用任何记忆内容。",
+      "rationale": "默认关闭是硬边界。"
+    }
   ],
   "expected_uncertainties": [
-    {"uncertainty_id": "IDEF-U1", "description": "用户偏好等长期记忆未开启，本次分析无法使用这些信息。", "reason": "Memory 默认不发送给模型。"}
+    {
+      "uncertainty_id": "IDEF-U1",
+      "description": "用户偏好等长期记忆未开启，本次分析无法使用这些信息。",
+      "reason": "Memory 默认不发送给模型。"
+    }
   ],
   "human_review": [
-    {"review_id": "IDEF-H1", "question": "模型是否在没有任何记忆内容的情况下仍『猜』出了用户偏好？", "rationale": "幻觉需要人工识别。"}
+    {
+      "review_id": "IDEF-H1",
+      "question": "模型是否在没有任何记忆内容的情况下仍『猜』出了用户偏好？",
+      "rationale": "幻觉需要人工识别。"
+    }
   ],
   "evaluation_dimensions": [
-    "DATASET_INTEGRITY", "CONTEXT_BINDING", "PROMPT_LEAKAGE", "TOKEN_ESTIMATE_BOUND",
-    "CONTEXT_ISOLATION", "CONTEXT_EXPECTATIONS", "PARSE_VALIDITY", "REQUIRED_SECTIONS",
-    "CITATION_VALIDITY", "CROSS_WORKSPACE_LEAKAGE", "FACT_COVERAGE", "UNSUPPORTED_CLAIMS",
-    "UNCERTAINTY_HANDLING", "EPISTEMIC_SEPARATION", "COMPLETENESS", "ROBUSTNESS"
+    "DATASET_INTEGRITY",
+    "CONTEXT_BINDING",
+    "PROMPT_LEAKAGE",
+    "TOKEN_ESTIMATE_BOUND",
+    "CONTEXT_ISOLATION",
+    "CONTEXT_EXPECTATIONS",
+    "PARSE_VALIDITY",
+    "REQUIRED_SECTIONS",
+    "CITATION_VALIDITY",
+    "CROSS_WORKSPACE_LEAKAGE",
+    "FACT_COVERAGE",
+    "UNSUPPORTED_CLAIMS",
+    "UNCERTAINTY_HANDLING",
+    "EPISTEMIC_SEPARATION",
+    "COMPLETENESS",
+    "ROBUSTNESS"
   ],
   "expected_context": {
     "included": [
-      {"type": "PERSON", "key": "yi-lian"},
-      {"type": "EVENT", "key": "tea"}
+      {
+        "type": "PERSON",
+        "key": "yi-lian"
+      },
+      {
+        "type": "EVENT",
+        "key": "tea"
+      }
     ],
     "excluded": [
-      {"type": "MEMORY", "key": "mem-pref"},
-      {"type": "MEMORY", "key": "mem-future"},
-      {"type": "MEMORY", "key": "mem-expired"}
+      {
+        "type": "MEMORY",
+        "key": "mem-pref"
+      },
+      {
+        "type": "MEMORY",
+        "key": "mem-future"
+      },
+      {
+        "type": "MEMORY",
+        "key": "mem-expired"
+      }
     ],
-    "required_text": ["茶叙"],
-    "forbidden_text": ["偏好安静的咖啡馆", "计划七月起常驻外地办公", "去年常去的书店已停业"],
+    "required_text": [
+      "茶叙"
+    ],
+    "forbidden_text": [
+      "偏好安静的咖啡馆",
+      "计划七月起常驻外地办公",
+      "去年常去的书店已停业"
+    ],
     "expected_error": null
   },
   "notes": "记忆层是用户确认的长期语义；默认关闭，且从不修改事实。"

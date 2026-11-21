@@ -71,15 +71,29 @@ AND (valid_until IS NULL OR valid_until >  now)
 
 `AnalysisSource` 只是**引用**（`analysis_*_source` 四张关联表），Review UI 从 Source 直接跳到真实事实详情：Person → Person Detail，Relationship → 关系详情，Event → Event Detail，Evidence → 其所属 Event 详情并选中该证据。**不复制事实正文**，也不在分析层创建事实副本。
 
-### 模型引用只作候选
+### 模型引用只作候选（Phase 13.2 起：状态化验证）
 
-若模型输出里出现 `[EVENT:uuid]`、`[EVIDENCE:uuid]`、`[PERSON:uuid]`、`[RELATIONSHIP:uuid]`，`candidate_references()` 会解析出来，但**只作为候选**：
+模型输出中的引用有两种来源：结构化结果里的 `references`（13.1 JSON 契约）与旧版文本中的
+`[EVENT:uuid]` 等标记。`candidate_references()` 用**同一个** `ReferenceVerifier`
+（`app/services/reference_verification.py`）解析并验证，返回带 `status` 与 `reason` 的
+`ValidatedReference`——**不再有 accepted 布尔**。状态（互斥、各自可解释）：
 
-1. 标记体必须是合法 UUID（否则记为"不是合法的 UUID"）；
-2. 该对象必须属于**本次运行记录的来源集合**（否则"该对象不在本次分析的来源中"）；
-3. 该对象必须仍然存在且属于同一 Workspace（否则"该对象已不存在或不属于当前 Workspace"）。
+| 状态 | 含义 |
+|---|---|
+| `VALID_FULL` | 本次上下文中**完整曝光**，引用合法 |
+| `VALID_LIMITED` | 引用合法，但实体只**有限曝光**（如仅身份/参与人信息、证据仅元数据），或旧快照无 Manifest |
+| `INVALID_FORMAT` | 标记体不是合法 UUID |
+| `UNKNOWN_SOURCE` | 该 UUID 不存在于任何 Workspace |
+| `WORKSPACE_MISMATCH` | 对象属于其他 Workspace |
+| `TYPE_MISMATCH` | 声明的引用类型错误（如把 Person UUID 写成 EVENT），或类型不可引用 |
+| `DELETED_SOURCE` | 对象已删除 |
+| `SOURCE_NOT_EXPOSED` | 本次 Manifest 中不存在该实体（上下文未曝光） |
+| `NOT_IN_RUN` | 旧快照规则下：对象存在于本 Workspace 但不属于本次运行来源集合 |
 
-三条都通过的候选才标记为 `accepted`，UI 也只给这些提供跳转。解析过程**不写任何数据**，候选永不自动变成 Source 或 Memory。若模型引用不可靠，Review UI 仍只提供来源列表与人工跳转。
+只有 `VALID_FULL` / `VALID_LIMITED` 提供跳转；UI 显示"有效（完整/有限曝光）"或
+"无效（状态 · 原因）"。**引用合法不等于结论有依据**——有限曝光只代表模型看到了部分信息。
+校验过程**不写任何数据**，候选永不自动变成 Source 或 Memory。Memory 本身不是可引用
+来源类型（引用类型只允许 PERSON / RELATIONSHIP / EVENT / EVIDENCE）。
 
 ## 与 ContextBuilder 的边界
 

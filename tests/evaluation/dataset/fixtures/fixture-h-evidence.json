@@ -1,0 +1,51 @@
+{
+  "schema_version": "1",
+  "fixture_id": "fixture-h-evidence",
+  "fixture_version": "1",
+  "description": "Scenario H：Evidence 边界——原始 Evidence 内容、用户 annotation、媒体附件元数据三者并存。分别测试 Evidence 未开启与开启后的上下文，检查原文、注释与附件元数据不被混为一谈。",
+  "synthetic": true,
+  "workspaces": [
+    {"key": "main", "name": "证据评估工作区"}
+  ],
+  "people": [
+    {"key": "he-lan", "workspace": "main", "display_name": "贺岚", "occupation": "助理"}
+  ],
+  "events": [
+    {
+      "key": "photo-walk",
+      "workspace": "main",
+      "title": "外拍活动",
+      "event_type": "Meeting",
+      "record_kind": "FACT",
+      "occurred_on": "2026-06-11",
+      "description": "在旧码头完成外拍",
+      "participants": [{"person": "he-lan", "role": "参与"}]
+    }
+  ],
+  "evidence": [
+    {
+      "key": "txt-h",
+      "workspace": "main",
+      "event": "photo-walk",
+      "kind": "TEXT",
+      "title": "拍摄记录",
+      "source_type": "DOCUMENT",
+      "source_label": "助理笔记",
+      "content_text": "拍摄记录原文：当天下午在旧码头拍摄了三组样片，光线良好。",
+      "annotation": "用户注释：记录由助理整理，可能有遗漏",
+      "captured_at": "2026-06-11T18:00:00+00:00"
+    },
+    {
+      "key": "file-h",
+      "workspace": "main",
+      "event": "photo-walk",
+      "kind": "FILE",
+      "title": "器材清单",
+      "source_type": "FILE",
+      "captured_at": "2026-06-11T18:30:00+00:00",
+      "media": [
+        {"key": "file-h-media", "filename": "gear.bin", "content": "synthetic evaluation attachment payload"}
+      ]
+    }
+  ]
+}

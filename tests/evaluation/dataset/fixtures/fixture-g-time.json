@@ -1,0 +1,65 @@
+{
+  "schema_version": "1",
+  "fixture_id": "fixture-g-time",
+  "fixture_version": "1",
+  "description": "Scenario G：时间范围——事件分布在 -100d / -60d / -20d / -3d / +5d，配合 7 天、30 天、90 天、ALL、CUSTOM 五种范围检查时间过滤与快照结果。",
+  "synthetic": true,
+  "workspaces": [
+    {"key": "main", "name": "时间评估工作区"}
+  ],
+  "people": [
+    {"key": "chen-mo", "workspace": "main", "display_name": "陈默", "occupation": "研究员"}
+  ],
+  "events": [
+    {
+      "key": "ev-m100",
+      "workspace": "main",
+      "title": "百日前的活动",
+      "event_type": "Meeting",
+      "record_kind": "FACT",
+      "occurred_on": "2026-03-07",
+      "description": "早前的项目启动会",
+      "participants": [{"person": "chen-mo"}]
+    },
+    {
+      "key": "ev-m60",
+      "workspace": "main",
+      "title": "六十日前的活动",
+      "event_type": "Meeting",
+      "record_kind": "FACT",
+      "occurred_on": "2026-04-16",
+      "description": "中期评审会",
+      "participants": [{"person": "chen-mo"}]
+    },
+    {
+      "key": "ev-m20",
+      "workspace": "main",
+      "title": "二十日前的活动",
+      "event_type": "Call",
+      "record_kind": "FACT",
+      "started_at": "2026-05-26T10:00:00+00:00",
+      "description": "进度确认通话",
+      "participants": [{"person": "chen-mo"}]
+    },
+    {
+      "key": "ev-m3",
+      "workspace": "main",
+      "title": "三日前的活动",
+      "event_type": "Meeting",
+      "record_kind": "FACT",
+      "started_at": "2026-06-12T09:00:00+00:00",
+      "description": "近期的筹备会",
+      "participants": [{"person": "chen-mo"}]
+    },
+    {
+      "key": "ev-p5",
+      "workspace": "main",
+      "title": "五日后的活动",
+      "event_type": "Meeting",
+      "record_kind": "FACT",
+      "started_at": "2026-06-20T09:00:00+00:00",
+      "description": "未来的活动，as_of 之后",
+      "participants": [{"person": "chen-mo"}]
+    }
+  ]
+}

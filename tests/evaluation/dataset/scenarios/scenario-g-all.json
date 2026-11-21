@@ -1,0 +1,56 @@
+{
+  "schema_version": "1",
+  "dataset_version": "1.0",
+  "scenario_id": "SCENARIO_G_ALL",
+  "scenario_version": "1",
+  "title": "G4：ALL 范围与 as_of 上界",
+  "description": "检查 ALL 没有下界但仍以 as_of 为上界：未来事件永不进入事实上下文。",
+  "fixture": "fixture-g-time",
+  "request": {
+    "target_type": "PERSON",
+    "target_key": "chen-mo",
+    "analysis_type": "PERSON_PROFILE",
+    "as_of": "2026-06-15T12:00:00+00:00",
+    "time_scope": "ALL",
+    "include": {"relationships": true, "history": true, "observations": true, "evidence": true, "memories": false},
+    "max_context_tokens": 24000
+  },
+  "expected_facts": [
+    {"fact_id": "GALL-F1", "source": {"type": "EVENT", "key": "ev-m100"}, "statement": "ALL 范围可见四条活动记录，从百日前一直到三日前。"}
+  ],
+  "required_sources": [
+    {"type": "PERSON", "key": "chen-mo"},
+    {"type": "EVENT", "key": "ev-m100"},
+    {"type": "EVENT", "key": "ev-m60"},
+    {"type": "EVENT", "key": "ev-m20"},
+    {"type": "EVENT", "key": "ev-m3"}
+  ],
+  "forbidden_claims": [
+    {"claim_id": "GALL-X1", "description": "声称 as_of 之后的活动已经发生。", "rationale": "未来事件不是事实，ALL 也不包含它。"}
+  ],
+  "expected_uncertainties": [
+    {"uncertainty_id": "GALL-U1", "description": "as_of 之后的活动尚未发生，不能当作既成事实。", "reason": "as_of 是所有范围的上界。"}
+  ],
+  "human_review": [
+    {"review_id": "GALL-H1", "question": "模型是否理解 ALL 仍有 as_of 上界？", "rationale": "时间语义需要人工确认。"}
+  ],
+  "evaluation_dimensions": [
+    "DATASET_INTEGRITY", "CONTEXT_BINDING", "PROMPT_LEAKAGE", "TOKEN_ESTIMATE_BOUND",
+    "CONTEXT_ISOLATION", "CONTEXT_EXPECTATIONS", "PARSE_VALIDITY", "REQUIRED_SECTIONS",
+    "CITATION_VALIDITY", "CROSS_WORKSPACE_LEAKAGE", "FACT_COVERAGE", "UNSUPPORTED_CLAIMS",
+    "UNCERTAINTY_HANDLING", "EPISTEMIC_SEPARATION", "COMPLETENESS", "ROBUSTNESS"
+  ],
+  "expected_context": {
+    "included": [
+      {"type": "EVENT", "key": "ev-m100"},
+      {"type": "EVENT", "key": "ev-m60"},
+      {"type": "EVENT", "key": "ev-m20"},
+      {"type": "EVENT", "key": "ev-m3"}
+    ],
+    "excluded": [{"type": "EVENT", "key": "ev-p5"}],
+    "required_text": ["百日前的活动", "六十日前的活动", "二十日前的活动", "三日前的活动"],
+    "forbidden_text": ["五日后的活动"],
+    "expected_error": null
+  },
+  "notes": "ALL = 无下界，上界仍是 as_of。"
+}

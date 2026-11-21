@@ -1,0 +1,39 @@
+{
+  "schema_version": "1",
+  "dataset_id": "social-map-analysis-eval",
+  "dataset_version": "1.0",
+  "title": "Social-Map Analysis 离线评估数据集",
+  "description": "完全虚构的合成数据集（Scenario A–J）：完整数据、稀疏数据、缺少来源、矛盾记录、FACT/OBSERVATION/INFERENCE 边界、关系变化、时间范围、Evidence 边界、Memory 边界、超长上下文。禁止写入任何真实个人资料。",
+  "synthetic": true,
+  "fixtures": [
+    "fixtures/fixture-a-complete.json",
+    "fixtures/fixture-b-sparse.json",
+    "fixtures/fixture-c-no-source.json",
+    "fixtures/fixture-d-conflict.json",
+    "fixtures/fixture-e-epistemic.json",
+    "fixtures/fixture-f-relationship-change.json",
+    "fixtures/fixture-g-time.json",
+    "fixtures/fixture-h-evidence.json",
+    "fixtures/fixture-i-memory.json",
+    "fixtures/fixture-j-large.json"
+  ],
+  "scenarios": [
+    "scenarios/scenario-a-complete.json",
+    "scenarios/scenario-b-sparse.json",
+    "scenarios/scenario-c-no-source.json",
+    "scenarios/scenario-d-conflict.json",
+    "scenarios/scenario-e-epistemic.json",
+    "scenarios/scenario-f-relationship-change.json",
+    "scenarios/scenario-g-last-7.json",
+    "scenarios/scenario-g-last-30.json",
+    "scenarios/scenario-g-last-90.json",
+    "scenarios/scenario-g-all.json",
+    "scenarios/scenario-g-custom.json",
+    "scenarios/scenario-h-evidence-off.json",
+    "scenarios/scenario-h-evidence-on.json",
+    "scenarios/scenario-i-memory-default.json",
+    "scenarios/scenario-i-memory-on.json",
+    "scenarios/scenario-j-near-limit.json",
+    "scenarios/scenario-j-over-limit.json"
+  ]
+}

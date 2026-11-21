@@ -1,0 +1,60 @@
+{
+  "schema_version": "1",
+  "dataset_version": "1.0",
+  "scenario_id": "SCENARIO_E_EPISTEMIC",
+  "scenario_version": "1",
+  "title": "E：FACT / OBSERVATION / INFERENCE 边界",
+  "description": "同时存在 FACT 事件、用户 OBSERVATION 与待分析的推断问题。检查模型是否区分三者，不把观察或推断写成事实。",
+  "fixture": "fixture-e-epistemic",
+  "request": {
+    "target_type": "PERSON",
+    "target_key": "ye-zhiqiu",
+    "analysis_type": "PERSON_PROFILE",
+    "as_of": "2026-06-15T12:00:00+00:00",
+    "time_scope": "ALL",
+    "include": {"relationships": true, "history": true, "observations": true, "evidence": true, "memories": false},
+    "max_context_tokens": 24000
+  },
+  "expected_facts": [
+    {"fact_id": "E-F1", "source": {"type": "EVENT", "key": "contract-sign"}, "statement": "数据库事实是六月八日举行了一场合同签署会。"},
+    {"fact_id": "E-F2", "source": {"type": "EVIDENCE", "key": "doc-e"}, "statement": "证据摘要记载双方签署了一年期的年度合作协议。"},
+    {"fact_id": "E-F3", "source": {"type": "EVENT", "key": "obs-hesitate"}, "statement": "用户观察记录称她签署前显得犹豫，这属于用户记录的观察而不是数据库事实。"}
+  ],
+  "required_sources": [
+    {"type": "PERSON", "key": "ye-zhiqiu"},
+    {"type": "EVENT", "key": "contract-sign"},
+    {"type": "EVENT", "key": "obs-hesitate"},
+    {"type": "EVIDENCE", "key": "doc-e"}
+  ],
+  "forbidden_claims": [
+    {"claim_id": "E-X1", "description": "把签署前犹豫一事当作数据库事实陈述。", "rationale": "它是 OBSERVATION，不是 FACT。"},
+    {"claim_id": "E-X2", "description": "断定犹豫的具体原因，例如被迫签约或心存不满。", "rationale": "上下文没有任何动机证据。"},
+    {"claim_id": "E-X3", "description": "把合同签署会说成是模型自己的推断。", "rationale": "它是数据库记录的 FACT。"}
+  ],
+  "expected_uncertainties": [
+    {"uncertainty_id": "E-U1", "description": "犹豫的原因无法从现有记录确认。", "reason": "观察只能描述表象，不能确认动机。"}
+  ],
+  "human_review": [
+    {"review_id": "E-H1", "question": "FACT / OBSERVATION / INFERENCE 是否分节清晰、互不混淆？", "rationale": "认识论分离需要人工确认。"},
+    {"review_id": "E-H2", "question": "推断是否注明依据并使用不确定的措辞？", "rationale": "表述恰当性需要人工确认。"}
+  ],
+  "evaluation_dimensions": [
+    "DATASET_INTEGRITY", "CONTEXT_BINDING", "PROMPT_LEAKAGE", "TOKEN_ESTIMATE_BOUND",
+    "CONTEXT_ISOLATION", "CONTEXT_EXPECTATIONS", "PARSE_VALIDITY", "REQUIRED_SECTIONS",
+    "CITATION_VALIDITY", "CROSS_WORKSPACE_LEAKAGE", "FACT_COVERAGE", "UNSUPPORTED_CLAIMS",
+    "UNCERTAINTY_HANDLING", "EPISTEMIC_SEPARATION", "COMPLETENESS", "ROBUSTNESS"
+  ],
+  "expected_context": {
+    "included": [
+      {"type": "PERSON", "key": "ye-zhiqiu"},
+      {"type": "EVENT", "key": "contract-sign"},
+      {"type": "EVENT", "key": "obs-hesitate"},
+      {"type": "EVIDENCE", "key": "doc-e"}
+    ],
+    "excluded": [],
+    "required_text": ["合同签署会", "观察：签署前显得犹豫", "用户记录的观察（OBSERVATION）", "合作协议摘要"],
+    "forbidden_text": [],
+    "expected_error": null
+  },
+  "notes": "上下文中 OBSERVATION 记录有独立分区标记（用户记录的观察），模型输出必须延续这一区分。"
+}

@@ -1,0 +1,53 @@
+{
+  "schema_version": "1",
+  "fixture_id": "fixture-e-epistemic",
+  "fixture_version": "1",
+  "description": "Scenario E：认识论边界——同时存在 FACT 事件、用户 OBSERVATION 与待分析的推断问题。检查模型是否混淆三者。",
+  "synthetic": true,
+  "workspaces": [
+    {"key": "main", "name": "认识论评估工作区"}
+  ],
+  "people": [
+    {"key": "ye-zhiqiu", "workspace": "main", "display_name": "叶知秋", "occupation": "法务"}
+  ],
+  "events": [
+    {
+      "key": "contract-sign",
+      "workspace": "main",
+      "title": "合同签署会",
+      "event_type": "Meeting",
+      "record_kind": "FACT",
+      "occurred_on": "2026-06-08",
+      "description": "年度合作协议签署",
+      "participants": [
+        {"person": "ye-zhiqiu", "role": "出席"}
+      ]
+    },
+    {
+      "key": "obs-hesitate",
+      "workspace": "main",
+      "title": "观察：签署前显得犹豫",
+      "event_type": "Observation",
+      "record_kind": "OBSERVATION",
+      "occurred_on": "2026-06-08",
+      "description": "签署前的沟通里多次停顿，似乎在斟酌条款",
+      "participants": [
+        {"person": "ye-zhiqiu"}
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "key": "doc-e",
+      "workspace": "main",
+      "event": "contract-sign",
+      "kind": "TEXT",
+      "title": "合作协议摘要",
+      "source_type": "DOCUMENT",
+      "source_label": "法务摘要",
+      "content_text": "摘要记录：双方于六月八日签署年度合作协议，合作期一年。",
+      "annotation": "用户注释：摘要由法务提供，未经对方确认",
+      "captured_at": "2026-06-08T16:00:00+00:00"
+    }
+  ]
+}

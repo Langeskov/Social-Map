@@ -1,0 +1,56 @@
+{
+  "schema_version": "1",
+  "dataset_version": "1.0",
+  "scenario_id": "SCENARIO_F_RELATIONSHIP_CHANGE",
+  "scenario_version": "1",
+  "title": "F：关系变化的有效时间与当前状态",
+  "description": "关系历史包含 ACTIVE/PAUSED/ENDED、未来生效记录（计划中）与补录的过去记录。检查模型是否理解 effective_at 与当前状态的区别。",
+  "fixture": "fixture-f-relationship-change",
+  "request": {
+    "target_type": "RELATIONSHIP",
+    "target_key": "mentor",
+    "analysis_type": "RELATIONSHIP_ANALYSIS",
+    "as_of": "2026-06-15T12:00:00+00:00",
+    "time_scope": "ALL",
+    "include": {"relationships": true, "history": true, "observations": true, "evidence": true, "memories": false},
+    "max_context_tokens": 24000
+  },
+  "expected_facts": [
+    {"fact_id": "F-F1", "source": {"type": "RELATIONSHIP", "key": "mentor"}, "statement": "按生效时间排列，截至六月十五日该指导关系的状态是结束。"},
+    {"fact_id": "F-F2", "source": {"type": "RELATIONSHIP", "key": "mentor"}, "statement": "六月三十日的恢复安排在 as_of 时点尚未生效，只是一项计划。"}
+  ],
+  "required_sources": [
+    {"type": "PERSON", "key": "zheng-nan"},
+    {"type": "PERSON", "key": "he-xi"},
+    {"type": "RELATIONSHIP", "key": "mentor"}
+  ],
+  "forbidden_claims": [
+    {"claim_id": "F-X1", "description": "把六月三十日计划恢复的 ACTIVE 当作当前状态。", "rationale": "未来生效记录不是当前事实。"},
+    {"claim_id": "F-X2", "description": "声称该指导关系目前仍在进行。", "rationale": "as_of 时点状态是 ENDED。"},
+    {"claim_id": "F-X3", "description": "把记录写入时间当作生效时间，或忽略补录的历史行。", "rationale": "有效时间以 effective_at 为准。"}
+  ],
+  "expected_uncertainties": [
+    {"uncertainty_id": "F-U1", "description": "未来是否按计划恢复指导尚不确定，计划可能被取消。", "reason": "计划不是承诺。"}
+  ],
+  "human_review": [
+    {"review_id": "F-H1", "question": "模型是否把生效时间、记录时间与当前状态三者区分清楚？", "rationale": "时序语义需要人工确认。"}
+  ],
+  "evaluation_dimensions": [
+    "DATASET_INTEGRITY", "CONTEXT_BINDING", "PROMPT_LEAKAGE", "TOKEN_ESTIMATE_BOUND",
+    "CONTEXT_ISOLATION", "CONTEXT_EXPECTATIONS", "PARSE_VALIDITY", "REQUIRED_SECTIONS",
+    "CITATION_VALIDITY", "CROSS_WORKSPACE_LEAKAGE", "FACT_COVERAGE", "UNSUPPORTED_CLAIMS",
+    "UNCERTAINTY_HANDLING", "EPISTEMIC_SEPARATION", "COMPLETENESS", "ROBUSTNESS"
+  ],
+  "expected_context": {
+    "included": [
+      {"type": "PERSON", "key": "zheng-nan"},
+      {"type": "PERSON", "key": "he-xi"},
+      {"type": "RELATIONSHIP", "key": "mentor"}
+    ],
+    "excluded": [],
+    "required_text": ["郑南", "何西", "指导关系", "计划中", "ENDED", "补录"],
+    "forbidden_text": [],
+    "expected_error": null
+  },
+  "notes": "四条历史行按 effective_at 生效；其中 2026-05-01 的 PAUSED 是补录的过去记录，2026-06-30 的 ACTIVE 是未来计划。"
+}

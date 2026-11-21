@@ -1,0 +1,51 @@
+{
+  "schema_version": "1",
+  "fixture_id": "fixture-d-conflict",
+  "fixture_version": "1",
+  "description": "Scenario D：矛盾记录——两条证据对同一例会时间的记载互相矛盾。检查模型是否识别矛盾，而不是擅自挑选一个当作事实。",
+  "synthetic": true,
+  "workspaces": [
+    {"key": "main", "name": "矛盾评估工作区"}
+  ],
+  "people": [
+    {"key": "zhou-heng", "workspace": "main", "display_name": "周衡", "occupation": "运营"}
+  ],
+  "events": [
+    {
+      "key": "meeting-plan",
+      "workspace": "main",
+      "title": "周三例会",
+      "event_type": "Meeting",
+      "record_kind": "FACT",
+      "occurred_on": "2026-06-10",
+      "description": "例会记录，具体时间以证据为准",
+      "participants": [
+        {"person": "zhou-heng"}
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "key": "chat-d",
+      "workspace": "main",
+      "event": "meeting-plan",
+      "kind": "TEXT",
+      "title": "群聊记录",
+      "source_type": "CHAT",
+      "source_label": "项目群",
+      "content_text": "群里通知：例会改到周四下午举行。",
+      "captured_at": "2026-06-09T20:00:00+00:00"
+    },
+    {
+      "key": "mail-d",
+      "workspace": "main",
+      "event": "meeting-plan",
+      "kind": "TEXT",
+      "title": "邮件摘要",
+      "source_type": "EMAIL",
+      "source_label": "日程邮件",
+      "content_text": "邮件确认：例会仍在周三下午举行，地点不变。",
+      "captured_at": "2026-06-10T09:00:00+00:00"
+    }
+  ]
+}

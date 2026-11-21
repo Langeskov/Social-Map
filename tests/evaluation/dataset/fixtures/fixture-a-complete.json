@@ -1,0 +1,180 @@
+{
+  "schema_version": "1",
+  "fixture_id": "fixture-a-complete",
+  "fixture_version": "1",
+  "description": "Scenario A：人物资料完整、多条关系、多条事件、明确证据；含一个外部 Workspace 用于隔离检查。全部为虚构人物。",
+  "synthetic": true,
+  "workspaces": [
+    {"key": "main", "name": "海岚评估工作区"},
+    {"key": "other", "name": "外部参考工作区"}
+  ],
+  "people": [
+    {
+      "key": "alice",
+      "workspace": "main",
+      "display_name": "爱丽丝",
+      "real_name": "Alice Chen",
+      "gender": "F",
+      "occupation": "摄影师",
+      "organization": "光影工作室",
+      "location": "海岚市",
+      "birthday": "1990-05-12",
+      "aliases": [
+        {"alias": "小爱", "alias_type": "NICKNAME", "note": "同事常用称呼"},
+        {"alias": "A. Chen", "alias_type": "OTHER"}
+      ]
+    },
+    {
+      "key": "bob",
+      "workspace": "main",
+      "display_name": "鲍勃",
+      "occupation": "教师",
+      "organization": "海岚二中",
+      "location": "海岚市"
+    },
+    {
+      "key": "carol",
+      "workspace": "main",
+      "display_name": "凯萝",
+      "occupation": "策展人",
+      "organization": "海岸画廊"
+    },
+    {
+      "key": "outsider",
+      "workspace": "other",
+      "display_name": "外部人物范德林",
+      "occupation": "顾问"
+    }
+  ],
+  "relationships": [
+    {
+      "key": "alice-bob",
+      "workspace": "main",
+      "person_a": "alice",
+      "person_b": "bob",
+      "relationship_type": "协作伙伴",
+      "directionality": "UNDIRECTED",
+      "initial_state": "ACTIVE",
+      "effective_at": "2026-05-06T09:00:00+00:00",
+      "history": [
+        {"state": "PAUSED", "effective_at": "2026-05-26T09:00:00+00:00", "note": "因项目暂停往来"},
+        {"state": "ACTIVE", "effective_at": "2026-06-05T09:00:00+00:00", "note": "恢复共同筹备"}
+      ]
+    },
+    {
+      "key": "alice-carol",
+      "workspace": "main",
+      "person_a": "alice",
+      "person_b": "carol",
+      "relationship_type": "策展合作",
+      "directionality": "DIRECTED",
+      "initial_state": "ACTIVE",
+      "effective_at": "2026-05-16T09:00:00+00:00"
+    }
+  ],
+  "events": [
+    {
+      "key": "expo-prep",
+      "workspace": "main",
+      "title": "摄影展筹备会",
+      "event_type": "Meeting",
+      "record_kind": "FACT",
+      "occurred_on": "2026-04-26",
+      "location": "光影工作室",
+      "description": "讨论展览主题与场地布置",
+      "participants": [
+        {"person": "alice", "role": "主持"},
+        {"person": "bob", "role": "参与"}
+      ]
+    },
+    {
+      "key": "call-night",
+      "workspace": "main",
+      "title": "深夜通话",
+      "event_type": "Call",
+      "record_kind": "FACT",
+      "started_at": "2026-06-12T21:30:00+00:00",
+      "description": "通话讨论展板尺寸与排期",
+      "participants": [
+        {"person": "alice"}
+      ]
+    },
+    {
+      "key": "retro-meeting",
+      "workspace": "main",
+      "title": "项目复盘会",
+      "event_type": "Meeting",
+      "record_kind": "FACT",
+      "started_at": "2026-06-14T10:00:00+00:00",
+      "description": "复盘筹备进度与预算",
+      "participants": [
+        {"person": "alice", "role": "主持"},
+        {"person": "carol"}
+      ]
+    },
+    {
+      "key": "obs-active",
+      "workspace": "main",
+      "title": "用户观察：她更主动",
+      "event_type": "Observation",
+      "record_kind": "OBSERVATION",
+      "occurred_on": "2026-06-13",
+      "description": "这段时间她更主动地推进筹备",
+      "participants": [
+        {"person": "alice"}
+      ]
+    },
+    {
+      "key": "expo-planned",
+      "workspace": "main",
+      "title": "计划中的展览",
+      "event_type": "Meeting",
+      "record_kind": "FACT",
+      "started_at": "2026-06-25T10:00:00+00:00",
+      "description": "未来计划，尚未发生",
+      "participants": [
+        {"person": "alice"},
+        {"person": "bob"}
+      ]
+    },
+    {
+      "key": "outsider-event",
+      "workspace": "other",
+      "title": "外部事件含有机密",
+      "event_type": "Meeting",
+      "record_kind": "FACT",
+      "occurred_on": "2026-06-01",
+      "description": "外部工作区的记录，绝不能进入评估上下文",
+      "participants": [
+        {"person": "outsider"}
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "key": "chat-retro",
+      "workspace": "main",
+      "event": "retro-meeting",
+      "kind": "TEXT",
+      "title": "群聊记录摘录",
+      "source_type": "CHAT",
+      "source_label": "光影工作室群",
+      "content_text": "明天下午三点在工作室碰头，把展板尺寸定下来。",
+      "annotation": "用户注释：活动前一天的沟通记录",
+      "captured_at": "2026-06-13T18:00:00+00:00"
+    },
+    {
+      "key": "plan-file",
+      "workspace": "main",
+      "event": "expo-prep",
+      "kind": "FILE",
+      "title": "场地平面图",
+      "source_type": "FILE",
+      "source_reference": "doc-7721",
+      "captured_at": "2026-04-26T15:00:00+00:00",
+      "media": [
+        {"key": "plan-media", "filename": "plan.bin", "content": "synthetic evaluation attachment payload"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "schema_version": "1",
+  "dataset_version": "1.0",
+  "scenario_id": "SCENARIO_J_NEAR_LIMIT",
+  "scenario_version": "1",
+  "title": "J1：超长上下文——接近预算上限",
+  "description": "多人物、多关系、大量合成事件与证据，上下文估算接近设定的 Context Limit。检查长度估算与构建行为。",
+  "fixture": "fixture-j-large",
+  "request": {
+    "target_type": "PERSON",
+    "target_key": "jin-man",
+    "analysis_type": "PERSON_PROFILE",
+    "as_of": "2026-06-15T12:00:00+00:00",
+    "time_scope": "ALL",
+    "include": {"relationships": true, "history": true, "observations": true, "evidence": true, "memories": false},
+    "max_context_tokens": 24000
+  },
+  "expected_facts": [],
+  "required_sources": [
+    {"type": "PERSON", "key": "jin-man"},
+    {"type": "RELATIONSHIP", "key": "jin-man-jin-2"},
+    {"type": "RELATIONSHIP", "key": "jin-man-jin-3"},
+    {"type": "EVENT", "key": "bulk-ev-000"},
+    {"type": "EVIDENCE", "key": "bulk-evd-000"}
+  ],
+  "forbidden_claims": [
+    {"claim_id": "JN-X1", "description": "为超出预算而未提供的内容补写摘要或猜测。", "rationale": "未提供即不可知。"},
+    {"claim_id": "JN-X2", "description": "声称逐条通读了全部批量记录并给出精确统计。", "rationale": "接近上限时应说明覆盖范围的局限。"}
+  ],
+  "expected_uncertainties": [
+    {"uncertainty_id": "JN-U1", "description": "上下文接近预算上限时，遗漏信息的风险更高，应说明结论只覆盖已提供部分。", "reason": "长上下文的覆盖局限必须显式。"}
+  ],
+  "human_review": [
+    {"review_id": "JN-H1", "question": "长上下文下输出是否仍然稳定、前后一致、不自相矛盾？", "rationale": "输出稳定性需要人工或多模型比较。"}
+  ],
+  "evaluation_dimensions": [
+    "DATASET_INTEGRITY", "CONTEXT_BINDING", "PROMPT_LEAKAGE", "TOKEN_ESTIMATE_BOUND",
+    "CONTEXT_ISOLATION", "CONTEXT_EXPECTATIONS", "PARSE_VALIDITY", "REQUIRED_SECTIONS",
+    "CITATION_VALIDITY", "CROSS_WORKSPACE_LEAKAGE", "UNSUPPORTED_CLAIMS", "ROBUSTNESS"
+  ],
+  "expected_context": {
+    "included": [
+      {"type": "PERSON", "key": "jin-man"},
+      {"type": "EVENT", "key": "bulk-ev-000"},
+      {"type": "EVIDENCE", "key": "bulk-evd-000"}
+    ],
+    "excluded": [],
+    "required_text": ["金蔓", "同事甲含山", "同事乙映雪", "批量评估事件", "批量评估证据"],
+    "forbidden_text": [],
+    "expected_error": null
+  },
+  "notes": "本场景没有事实参考答案（expected_facts 为空），FACT_COVERAGE 不适用；重点是预算与稳定性。"
+}

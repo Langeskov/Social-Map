@@ -1,0 +1,50 @@
+{
+  "schema_version": "1",
+  "fixture_id": "fixture-i-memory",
+  "fixture_version": "1",
+  "description": "Scenario I：Memory 边界——已确认记忆、未到生效日期的记忆与已过期的记忆并存；Memory 默认关闭，检查 ContextBuilder 严格按用户开关生成上下文。",
+  "synthetic": true,
+  "workspaces": [
+    {"key": "main", "name": "记忆评估工作区"}
+  ],
+  "people": [
+    {"key": "yi-lian", "workspace": "main", "display_name": "伊莲", "occupation": "编辑"}
+  ],
+  "events": [
+    {
+      "key": "tea",
+      "workspace": "main",
+      "title": "茶叙",
+      "event_type": "Meeting",
+      "record_kind": "FACT",
+      "occurred_on": "2026-06-10",
+      "description": "与朋友的茶叙",
+      "participants": [{"person": "yi-lian"}]
+    }
+  ],
+  "memories": [
+    {
+      "key": "mem-pref",
+      "workspace": "main",
+      "person": "yi-lian",
+      "kind": "PREFERENCE",
+      "content": "偏好安静的咖啡馆作为会面地点"
+    },
+    {
+      "key": "mem-future",
+      "workspace": "main",
+      "person": "yi-lian",
+      "kind": "CONTEXT",
+      "content": "计划七月起常驻外地办公",
+      "valid_from": "2026-06-25T00:00:00+00:00"
+    },
+    {
+      "key": "mem-expired",
+      "workspace": "main",
+      "person": "yi-lian",
+      "kind": "FACT",
+      "content": "去年常去的书店已停业",
+      "valid_until": "2026-06-14T12:00:00+00:00"
+    }
+  ]
+}

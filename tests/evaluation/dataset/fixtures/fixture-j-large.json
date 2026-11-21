@@ -1,0 +1,62 @@
+{
+  "schema_version": "1",
+  "fixture_id": "fixture-j-large",
+  "fixture_version": "1",
+  "description": "Scenario J：超长上下文——多人物、多关系、大量合成事件与证据（批量展开），逼近上下文预算。检查长度估算与超限行为（明确拒绝，不静默截断）。",
+  "synthetic": true,
+  "workspaces": [
+    {"key": "main", "name": "大上下文评估工作区"}
+  ],
+  "people": [
+    {"key": "jin-man", "workspace": "main", "display_name": "金蔓", "occupation": "统筹"},
+    {"key": "jin-2", "workspace": "main", "display_name": "同事甲含山", "occupation": "设计"},
+    {"key": "jin-3", "workspace": "main", "display_name": "同事乙映雪", "occupation": "执行"},
+    {"key": "jin-4", "workspace": "main", "display_name": "友人丙听澜", "occupation": "顾问"}
+  ],
+  "relationships": [
+    {
+      "key": "jin-man-jin-2",
+      "workspace": "main",
+      "person_a": "jin-man",
+      "person_b": "jin-2",
+      "relationship_type": "同事",
+      "directionality": "DIRECTED",
+      "initial_state": "ACTIVE",
+      "effective_at": "2026-04-01T09:00:00+00:00"
+    },
+    {
+      "key": "jin-man-jin-3",
+      "workspace": "main",
+      "person_a": "jin-man",
+      "person_b": "jin-3",
+      "relationship_type": "同事",
+      "directionality": "DIRECTED",
+      "initial_state": "ACTIVE",
+      "effective_at": "2026-04-10T09:00:00+00:00"
+    }
+  ],
+  "bulk_events": [
+    {
+      "key_prefix": "bulk-ev",
+      "title_prefix": "批量评估事件",
+      "workspace": "main",
+      "person": "jin-man",
+      "count": 100,
+      "event_type": "Meeting",
+      "record_kind": "FACT",
+      "occurred_on_base": "2026-06-10",
+      "occurred_on_step_days": -1,
+      "description_template": "第 {index} 号合成评估记录：这是一段用于逼近上下文预算上限的长描述，内容完全虚构，描述一次并不存在的项目例会，讨论虚构的排期与预算安排，涉及虚构人物与虚构地点，不包含任何真实个人资料，仅用于验证上下文长度估算、预算守卫与超限拒绝行为。此段文字用于增加上下文体积，第 {index} 号记录与其余批量记录结构一致。"
+    }
+  ],
+  "bulk_evidence": [
+    {
+      "key_prefix": "bulk-evd",
+      "title_prefix": "批量评估证据",
+      "workspace": "main",
+      "event_key_prefix": "bulk-ev",
+      "count": 30,
+      "content_template": "第 {index} 号合成证据文本，完全虚构，用于增加上下文体积并验证预算守卫。"
+    }
+  ]
+}

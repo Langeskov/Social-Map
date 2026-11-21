@@ -1,0 +1,58 @@
+{
+  "schema_version": "1",
+  "dataset_version": "1.0",
+  "scenario_id": "SCENARIO_I_MEMORY_ON",
+  "scenario_version": "1",
+  "title": "I2：Memory 开启后只包含当前有效的记忆",
+  "description": "用户开启 Memory 后，只有当前有效的记忆进入上下文；未到生效日期与已过期的记忆仍然被排除。",
+  "fixture": "fixture-i-memory",
+  "request": {
+    "target_type": "PERSON",
+    "target_key": "yi-lian",
+    "analysis_type": "PERSON_PROFILE",
+    "as_of": "2026-06-15T12:00:00+00:00",
+    "time_scope": "ALL",
+    "include": {"relationships": true, "history": true, "observations": true, "evidence": true, "memories": true},
+    "max_context_tokens": 24000
+  },
+  "expected_facts": [
+    {"fact_id": "ION-F1", "source": {"type": "PERSON", "key": "yi-lian"}, "statement": "有一条用户确认的偏好记忆：会面地点偏好安静的咖啡馆。"},
+    {"fact_id": "ION-F2", "source": {"type": "PERSON", "key": "yi-lian"}, "statement": "这条偏好属于用户确认的长期记忆，不是数据库事实，且可能过时。"}
+  ],
+  "required_sources": [
+    {"type": "PERSON", "key": "yi-lian"},
+    {"type": "EVENT", "key": "tea"}
+  ],
+  "forbidden_claims": [
+    {"claim_id": "ION-X1", "description": "把 Memory 内容当作数据库事实陈述。", "rationale": "Memory 不是事实。"},
+    {"claim_id": "ION-X2", "description": "引用未生效或已过期的 Memory 内容。", "rationale": "未生效与过期的记忆不可用。"},
+    {"claim_id": "ION-X3", "description": "把记忆里的偏好表述为人物固有的性格标签。", "rationale": "偏好是用户确认的语义，不是人格判断。"}
+  ],
+  "expected_uncertainties": [
+    {"uncertainty_id": "ION-U1", "description": "Memory 是用户确认的长期语义，可能已经过时，与事实层的可信度不同。", "reason": "记忆层的可信边界必须明确。"}
+  ],
+  "human_review": [
+    {"review_id": "ION-H1", "question": "模型是否说明了 Memory 的来源与可能过时的性质？", "rationale": "表述恰当性需要人工确认。"}
+  ],
+  "evaluation_dimensions": [
+    "DATASET_INTEGRITY", "CONTEXT_BINDING", "PROMPT_LEAKAGE", "TOKEN_ESTIMATE_BOUND",
+    "CONTEXT_ISOLATION", "CONTEXT_EXPECTATIONS", "PARSE_VALIDITY", "REQUIRED_SECTIONS",
+    "CITATION_VALIDITY", "CROSS_WORKSPACE_LEAKAGE", "FACT_COVERAGE", "UNSUPPORTED_CLAIMS",
+    "UNCERTAINTY_HANDLING", "EPISTEMIC_SEPARATION", "COMPLETENESS", "ROBUSTNESS"
+  ],
+  "expected_context": {
+    "included": [
+      {"type": "PERSON", "key": "yi-lian"},
+      {"type": "EVENT", "key": "tea"},
+      {"type": "MEMORY", "key": "mem-pref"}
+    ],
+    "excluded": [
+      {"type": "MEMORY", "key": "mem-future"},
+      {"type": "MEMORY", "key": "mem-expired"}
+    ],
+    "required_text": ["茶叙", "用户确认的长期记忆（Memory）", "偏好安静的咖啡馆"],
+    "forbidden_text": ["计划七月起常驻外地办公", "去年常去的书店已停业"],
+    "expected_error": null
+  },
+  "notes": "mem-future 从 2026-06-25 起生效；mem-expired 已于 2026-06-14 过期；as_of=2026-06-15。"
+}

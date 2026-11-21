@@ -1,0 +1,33 @@
+{
+  "schema_version": "1",
+  "fixture_id": "fixture-f-relationship-change",
+  "fixture_version": "1",
+  "description": "Scenario F：关系变化——ACTIVE/PAUSED/ENDED 历史、未来生效记录（计划中）与补录的过去记录。检查模型是否理解有效时间与当前状态。",
+  "synthetic": true,
+  "workspaces": [
+    {"key": "main", "name": "关系变化评估工作区"}
+  ],
+  "people": [
+    {"key": "zheng-nan", "workspace": "main", "display_name": "郑南", "occupation": "导师"},
+    {"key": "he-xi", "workspace": "main", "display_name": "何西", "occupation": "学员"}
+  ],
+  "relationships": [
+    {
+      "key": "mentor",
+      "workspace": "main",
+      "person_a": "zheng-nan",
+      "person_b": "he-xi",
+      "relationship_type": "指导关系",
+      "directionality": "DIRECTED",
+      "initial_state": "ACTIVE",
+      "effective_at": "2026-04-16T09:00:00+00:00",
+      "note": "建立指导关系",
+      "history": [
+        {"state": "PAUSED", "effective_at": "2026-05-01T09:00:00+00:00", "note": "补录：期间曾短暂暂停指导"},
+        {"state": "PAUSED", "effective_at": "2026-05-26T09:00:00+00:00", "note": "暂停指导"},
+        {"state": "ENDED", "effective_at": "2026-06-10T09:00:00+00:00", "note": "指导关系结束"},
+        {"state": "ACTIVE", "effective_at": "2026-06-30T09:00:00+00:00", "note": "计划恢复指导"}
+      ]
+    }
+  ]
+}

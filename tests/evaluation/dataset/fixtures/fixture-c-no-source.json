@@ -1,0 +1,26 @@
+{
+  "schema_version": "1",
+  "fixture_id": "fixture-c-no-source",
+  "fixture_version": "1",
+  "description": "Scenario C：缺少来源——存在看似合理的分析目标（林曼与其同事关系），但上下文中没有任何事件或证据。检查模型是否编造事实。",
+  "synthetic": true,
+  "workspaces": [
+    {"key": "main", "name": "无来源评估工作区"}
+  ],
+  "people": [
+    {"key": "lin-man", "workspace": "main", "display_name": "林曼", "occupation": "产品经理"},
+    {"key": "chen-xu", "workspace": "main", "display_name": "陈叙", "occupation": "工程师"}
+  ],
+  "relationships": [
+    {
+      "key": "lin-man-chen-xu",
+      "workspace": "main",
+      "person_a": "lin-man",
+      "person_b": "chen-xu",
+      "relationship_type": "同事",
+      "directionality": "DIRECTED",
+      "initial_state": "ACTIVE",
+      "effective_at": "2026-05-20T09:00:00+00:00"
+    }
+  ]
+}

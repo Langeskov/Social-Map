@@ -1,0 +1,26 @@
+{
+  "schema_version": "1",
+  "fixture_id": "fixture-b-sparse",
+  "fixture_version": "1",
+  "description": "Scenario B：资料稀疏——人物只有姓名，仅一条简略关系，没有事件、没有证据、没有记忆。正确输出应承认信息不足。",
+  "synthetic": true,
+  "workspaces": [
+    {"key": "main", "name": "稀疏评估工作区"}
+  ],
+  "people": [
+    {"key": "xiao-zhao", "workspace": "main", "display_name": "小赵"},
+    {"key": "lao-zhou", "workspace": "main", "display_name": "老周"}
+  ],
+  "relationships": [
+    {
+      "key": "xiao-zhao-lao-zhou",
+      "workspace": "main",
+      "person_a": "xiao-zhao",
+      "person_b": "lao-zhou",
+      "relationship_type": "相识",
+      "directionality": "UNDIRECTED",
+      "initial_state": "ACTIVE",
+      "effective_at": "2026-06-05T09:00:00+00:00"
+    }
+  ]
+}

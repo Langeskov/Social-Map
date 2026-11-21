@@ -1,0 +1,60 @@
+{
+  "schema_version": "1",
+  "dataset_version": "1.0",
+  "scenario_id": "SCENARIO_D_CONFLICT",
+  "scenario_version": "1",
+  "title": "D：矛盾记录应被识别而不是被裁决",
+  "description": "两条证据对同一例会时间的记载互相矛盾。检查模型是否指出矛盾并保留不确定性，而不是擅自挑选一个当作事实。",
+  "fixture": "fixture-d-conflict",
+  "request": {
+    "target_type": "PERSON",
+    "target_key": "zhou-heng",
+    "analysis_type": "PERSON_PROFILE",
+    "as_of": "2026-06-15T12:00:00+00:00",
+    "time_scope": "ALL",
+    "include": {"relationships": true, "history": true, "observations": true, "evidence": true, "memories": false},
+    "max_context_tokens": 24000
+  },
+  "expected_facts": [
+    {"fact_id": "D-F1", "source": {"type": "EVENT", "key": "meeting-plan"}, "statement": "数据库记录了一场名为周三例会的会议，日期为六月十日。"},
+    {"fact_id": "D-F2", "source": {"type": "EVIDENCE", "key": "chat-d"}, "statement": "群聊记录称例会时间改到了周四下午。"},
+    {"fact_id": "D-F3", "source": {"type": "EVIDENCE", "key": "mail-d"}, "statement": "邮件摘要称例会时间仍在周三下午。"}
+  ],
+  "required_sources": [
+    {"type": "PERSON", "key": "zhou-heng"},
+    {"type": "EVENT", "key": "meeting-plan"},
+    {"type": "EVIDENCE", "key": "chat-d"},
+    {"type": "EVIDENCE", "key": "mail-d"}
+  ],
+  "forbidden_claims": [
+    {"claim_id": "D-X1", "description": "断言例会确定改到了周四下午。", "rationale": "另一条证据与之矛盾，不能单方采信。"},
+    {"claim_id": "D-X2", "description": "断言例会确定仍在周三下午举行。", "rationale": "另一条证据与之矛盾，不能单方采信。"},
+    {"claim_id": "D-X3", "description": "声称其中一条证据是伪造的或不可信的。", "rationale": "上下文没有给出可信度判断依据。"},
+    {"claim_id": "D-X4", "description": "把矛盾的两条证据合并成一个确定的时间结论。", "rationale": "必须保留矛盾本身。"}
+  ],
+  "expected_uncertainties": [
+    {"uncertainty_id": "D-U1", "description": "例会的实际举行时间无法由现有记录确定，因为两条证据互相矛盾。", "reason": "矛盾材料未解决前不能下确定结论。"}
+  ],
+  "human_review": [
+    {"review_id": "D-H1", "question": "模型是否识别并明确保留了矛盾，而不是无意中选择了其中一方？", "rationale": "矛盾处理的语义质量只能人工评价。"}
+  ],
+  "evaluation_dimensions": [
+    "DATASET_INTEGRITY", "CONTEXT_BINDING", "PROMPT_LEAKAGE", "TOKEN_ESTIMATE_BOUND",
+    "CONTEXT_ISOLATION", "CONTEXT_EXPECTATIONS", "PARSE_VALIDITY", "REQUIRED_SECTIONS",
+    "CITATION_VALIDITY", "CROSS_WORKSPACE_LEAKAGE", "FACT_COVERAGE", "UNSUPPORTED_CLAIMS",
+    "UNCERTAINTY_HANDLING", "EPISTEMIC_SEPARATION", "COMPLETENESS", "ROBUSTNESS"
+  ],
+  "expected_context": {
+    "included": [
+      {"type": "PERSON", "key": "zhou-heng"},
+      {"type": "EVENT", "key": "meeting-plan"},
+      {"type": "EVIDENCE", "key": "chat-d"},
+      {"type": "EVIDENCE", "key": "mail-d"}
+    ],
+    "excluded": [],
+    "required_text": ["周三例会", "群里通知：例会改到周四下午举行。", "邮件确认：例会仍在周三下午举行，地点不变。"],
+    "forbidden_text": [],
+    "expected_error": null
+  },
+  "notes": "两条证据的内容都是 FACT 层面的『记载』；它们记载的内容互相冲突，这一点本身是事实。"
+}

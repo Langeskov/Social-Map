@@ -49,6 +49,15 @@ FOUR_SECTIONS = """## Facts（事实）
 ## Uncertainties（不确定与缺失）
 - 通话内容没有证据支持。"""
 CHAT_URL = "http://127.0.0.1:9/v1/chat/completions"
+STRUCTURED_ANSWER = json.dumps({
+    "schema_version": "1",
+    "facts": [{"content": "Tester 在 2026-05-01 参加 Meeting",
+               "references": [{"type": "EVENT", "id": "7a9c1f0e-1b2c-4d3e-8f40-123456789abc"}]}],
+    "observations": [{"content": "通话持续 10 分钟"}],
+    "interpretations": [{"content": "关系可能仍在维持",
+                         "confidence_description": "依据不足，仅为可能"}],
+    "uncertainties": [{"content": "没有证据支持通话内容"}],
+}, ensure_ascii=False)
 
 
 def chat_response(content=FOUR_SECTIONS, model="fake-model", status=200):
@@ -384,6 +393,49 @@ def test_unstructured_answer_lands_in_the_other_section(analysis_ui):
         assert dialog.section_views["facts"].toPlainText() == "（本段没有内容）"
         assert "no headings at all" in dialog.section_views["other"].toPlainText()
         assert dialog.sections["facts"] == ""
+    finally:
+        dialog.close()
+    assert run.status == "SUCCEEDED"
+
+
+def test_structured_json_answer_shows_sections_raw_output_and_parse_status(analysis_ui):
+    c = analysis_ui
+    run, _, _ = perform_run(c, "PERSON", c.person.id,
+                            response=chat_response(content=STRUCTURED_ANSWER))
+    dialog = c.page.show_result()
+    try:
+        assert dialog.parsed.parse_status == "PARSED_JSON"
+        assert dialog.fields["解析状态"].text() == "PARSED_JSON"
+        assert "Tester 在 2026-05-01 参加 Meeting" in \
+               dialog.section_views["facts"].toPlainText()
+        # Parsed references are shown but explicitly labelled as unvalidated.
+        assert "引用（未校验）" in dialog.section_views["facts"].toPlainText()
+        assert "依据不足，仅为可能" in dialog.section_views["interpretations"].toPlainText()
+        # The raw answer is always available and byte-identical, never replaced.
+        assert dialog.raw_output is not None
+        assert dialog.raw_output.toPlainText() == run.result
+        assert dialog.parse_warnings is None
+        assert dialog.sections["other"] == ""
+        assert "PARSED_JSON" in c.page.message.text()
+    finally:
+        dialog.close()
+    c.qt_app.processEvents()
+    assert c.errors == []
+
+
+def test_parse_warning_is_visible_but_not_a_model_failure(analysis_ui):
+    c = analysis_ui
+    fragmented = "以下为结果：\n```json\n" + STRUCTURED_ANSWER + "\n```"
+    run, _, _ = perform_run(c, "PERSON", c.person.id,
+                            response=chat_response(content=fragmented))
+    dialog = c.page.show_result()
+    try:
+        assert dialog.parsed.parse_status == "PARSED_JSON_FRAGMENT"
+        assert dialog.parse_warnings is not None
+        assert "解析提示" in dialog.parse_warnings.text()
+        assert "SUCCEEDED" in dialog.status.text()        # warning is not a failure
+        assert dialog.raw_output.toPlainText() == fragmented
+        assert "以下为结果" in dialog.section_views["other"].toPlainText()
     finally:
         dialog.close()
     assert run.status == "SUCCEEDED"

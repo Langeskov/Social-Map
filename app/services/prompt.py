@@ -2,10 +2,14 @@
 
 System rules are deliberately explicit about the fact/observation/inference
 boundary, about not inventing records and about stating uncertainty. The model is
-never asked for affinity/danger scores or personality labels.
+never asked for affinity/danger scores or personality labels. Since Phase 13.1 the
+output contract is structured JSON (schema 1) whose entries carry explicit
+references to ``[TYPE:<uuid>]`` markers from the context; the parser still accepts
+the legacy four-section Markdown for old answers.
 """
 from dataclasses import dataclass
 
+from app.services.analysis_result_parser import split_legacy_sections
 from app.services.context import ContextSnapshot
 from app.services.llm import ChatMessage, ROLE_SYSTEM, ROLE_USER
 
@@ -21,23 +25,34 @@ SYSTEM_PROMPT = """你是一个本地人际关系知识库的分析助手。你�
 4. 不得引用未提供给你的信息，也不得假装知道未提供的内容。
 5. 明确说明不确定性：证据不足时写“证据不足以确认……”，推测时使用“根据记录……可能……”这类措辞。
 6. 不要使用“这个人就是……”“对方一定……”这类断言式人格判断。
-7. 只使用上下文中给出的证据；引用证据时说明它来自哪条记录。
+7. 只使用上下文中给出的证据；引用来源时只能使用上下文中 [TYPE:<uuid>] 形式的标记（如 [EVENT:<uuid>]），不得编造 UUID，也不得引用没有出现在上下文中的实体。
 8. 不要给出好感度、危险度、人格类别或任何 0-100 的评分，除非用户在请求中明确要求某种专门评分。
 9. 使用与用户请求相同的语言作答（本应用默认中文）。"""
 
-OUTPUT_TEMPLATE = """请按以下四个小节输出，每节都要有标题：
+OUTPUT_TEMPLATE = """请只输出一个 JSON 对象（schema 1），不要输出 Markdown 标题，也不要在 JSON 之外写解释文字：
 
-## Facts（事实）
-只列上下文中明确记录的内容，注明来自哪条记录。
+{
+  "schema_version": "1",
+  "facts": [
+    {"content": "只写上下文中明确记录的内容", "references": [{"type": "EVENT", "id": "上下文中的 UUID"}]}
+  ],
+  "observations": [
+    {"content": "只写用户明确记录的观察", "references": [{"type": "EVENT", "id": "上下文中的 UUID"}]}
+  ],
+  "interpretations": [
+    {"content": "你的推测", "references": [{"type": "EVENT", "id": "上下文中的 UUID"}], "confidence_description": "依据与不确定程度"}
+  ],
+  "uncertainties": [
+    {"content": "说明缺什么信息、哪个结论证据不足", "references": []}
+  ]
+}
 
-## Observations（观察）
-只列用户明确记录的观察；没有就写“（上下文中没有用户记录的观察）”。
-
-## Interpretations（推断）
-你的推测，逐条注明依据与不确定程度；使用“根据记录……可能……”这类措辞。
-
-## Uncertainties（不确定与缺失）
-说明哪些结论证据不足、上下文中缺少哪些信息。"""
+要求：
+1. references 的 type 只能是 PERSON、RELATIONSHIP、EVENT、EVIDENCE；id 必须来自上下文中 [TYPE:<uuid>] 标记的 UUID，并且该实体确实出现在上下文里。没有可靠来源时 references 输出空数组 []，绝不编造 UUID。
+2. interpretations 必须逐条写明依据（references）与不确定程度（confidence_description），使用“根据记录……可能……”这类措辞。
+3. 没有某类内容时输出空数组 []。
+4. content 中不要包含 [TYPE:<uuid>] 标记本身，来源写在 references 里。
+5. 不得编造事件、人物、时间或证据；不得给出人物评分或人格类别断言。"""
 
 ANALYSIS_GOAL = {
     "PERSON_PROFILE": "分析该人物近期行为记录：他/她参与了哪些事件、与谁有关系、关系状态如何变化。",
@@ -81,35 +96,9 @@ class PromptBuilder:
 
 
 def split_result_sections(result: str) -> dict:
-    """Best-effort split of the model's plain-text answer into the four sections.
+    """Best-effort split of a plain-text answer into the four legacy sections.
 
-    The first version does not demand JSON: the UI highlights the headings it can
-    find and shows everything else as unstructured text.
+    Kept for stored answers from before Phase 13.1; new answers are parsed by
+    ``app.services.analysis_result_parser.parse_analysis_result``.
     """
-    sections = {"facts": "", "observations": "", "interpretations": "", "uncertainties": "",
-                "other": ""}
-    current = "other"
-    for raw_line in (result or "").splitlines():
-        line = raw_line.strip()
-        key = _heading_key(line)
-        if key is not None:
-            current = key
-            continue
-        if line:
-            sections[current] += (line + "\n")
-    return {name: text.strip() for name, text in sections.items()}
-
-
-def _heading_key(line: str):
-    lowered = line.lstrip("#").strip().lower().rstrip("：:")
-    if not lowered:
-        return None
-    if lowered.startswith("fact") or lowered.startswith("事实"):
-        return "facts"
-    if lowered.startswith("observation") or lowered.startswith("观察"):
-        return "observations"
-    if lowered.startswith("interpretation") or lowered.startswith("推断"):
-        return "interpretations"
-    if lowered.startswith("uncertaint") or lowered.startswith("不确定"):
-        return "uncertainties"
-    return None
+    return split_legacy_sections(result or "")

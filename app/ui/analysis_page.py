@@ -32,8 +32,8 @@ from app.services.errors import DatabaseError
 from app.services.prompt import split_result_sections
 from app.ui.analysis_dialog import (MEMORY_KINDS, RESULT_SECTIONS, SOURCE_KINDS, SOURCE_LABELS,
     TARGET_LABELS, AnalysisResultDialog, AnalysisSourceRows, ContextSnapshotDialog,
-    MemoryConfirmDialog, ProviderSettingsDialog, duration_text, plain_label,
-    suggested_memory_content, time_text, track_dialog, utc_text)
+    MemoryConfirmDialog, ProviderSettingsDialog, display_sections, duration_text,
+    parsed_result, plain_label, suggested_memory_content, time_text, track_dialog, utc_text)
 from app.ui.analysis_dialog import run_analysis
 from app.ui.context import ContextPage
 from app.ui.design.tokens import SPACE
@@ -496,13 +496,32 @@ class AnalysisPage(ContextPage, QWidget):
         self.show_sources(view)
         self.show_candidates(view)
         if run.status == "SUCCEEDED":
-            self.summary.setPlainText(run.result or "")
+            parsed = parsed_result(run)
+            if parsed.structured:
+                self.summary.setPlainText(self.structured_summary_text(parsed))
+            else:
+                self.summary.setPlainText(run.result or "")
             self.message.setText("状态 SUCCEEDED · 下面是模型输出，不是数据库事实；事实层未被修改。"
-                                 f"识别到的小节：{self.section_summary(run)}")
+                                 f"输出格式 {parsed.parse_status} · 识别到的小节："
+                                 f"{self.section_summary(run)}")
         else:
             self.message.setText(f"状态 {run.status} · {run.error_message or '没有可显示的结果正文。'}")
         self.update_buttons()
         return view
+
+    @staticmethod
+    def structured_summary_text(parsed) -> str:
+        """Readable structured body for the detail pane (raw stays in the dialog)."""
+        blocks = []
+        for key, title in RESULT_SECTIONS:
+            if key == "other":
+                continue
+            text = parsed.display_text(key)
+            if text:
+                blocks.append(f"[{title}]\n{text}")
+        if parsed.unparsed_content:
+            blocks.append("[其他（未识别的段落）]\n" + parsed.unparsed_content)
+        return "\n\n".join(blocks)
 
     # ------------------------------------------------------------------ sources
     def clear_references(self):
@@ -636,6 +655,11 @@ class AnalysisPage(ContextPage, QWidget):
     @staticmethod
     def section_summary(run):
         """Which of the four result sections the stored answer actually contains."""
+        parsed = parsed_result(run)
+        if parsed.structured:
+            found = [title for key, title in RESULT_SECTIONS
+                     if key != "other" and parsed.section(key)]
+            return "结构化 JSON · " + (" · ".join(found) if found else "四节均为空")
         sections = split_result_sections(run.result or "")
         found = [title for key, title in RESULT_SECTIONS if sections.get(key)]
         return " · ".join(found) if found else "未识别到小节标题"

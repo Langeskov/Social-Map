@@ -14,7 +14,8 @@ Four dialogs live here, and every one of them obeys the same three rules:
 
 The service interfaces used here are frozen: ``AnalysisService.create_run`` /
 ``build_snapshot`` / ``get``, ``LLMGateway`` config and ``test_provider``, and
-``app.services.prompt.split_result_sections``.
+``app.services.analysis_result_parser.parse_analysis_result`` (structured results,
+Phase 13.1). The legacy ``split_result_sections`` still renders old answers.
 """
 import json
 import logging
@@ -26,8 +27,11 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
     QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QVBoxLayout)
 
+from app.domain.entities.analysis_result import (LEGACY_MARKDOWN, SECTION_KEYS,
+                                                STRUCTURED_STATUSES)
 from app.domain.errors import DomainError
 from app.domain.validation import normalize_datetime
+from app.services.analysis_result_parser import parse_analysis_result
 from app.services.context import (ALL_TIME, CUSTOM, LAST_7_DAYS, LAST_30_DAYS, LAST_90_DAYS,
                                  AnalysisRequest)
 from app.services.errors import DatabaseError
@@ -73,11 +77,34 @@ MEMORY_SUGGESTION_CHARS = 1200
 MEMORY_SUGGESTION_LINES = 8
 
 
+def parsed_result(run):
+    """Parsed view over one stored answer; the raw text is never rewritten."""
+    return parse_analysis_result(getattr(run, "result", None) or "")
+
+
+def display_sections(parsed):
+    """``key -> readable text`` for the result dialog.
+
+    Structured answers render parsed entries (references marked as unvalidated);
+    legacy answers keep the historic four-heading rendering exactly; anything
+    else is shown as raw text in the "other" section.
+    """
+    if parsed.parse_status in STRUCTURED_STATUSES:
+        sections = {key: parsed.display_text(key) for key in SECTION_KEYS}
+        sections["other"] = parsed.unparsed_content
+        return sections
+    if parsed.parse_status == LEGACY_MARKDOWN:
+        return split_result_sections(parsed.raw_text)
+    sections = {key: "" for key in RESULT_KEYS}
+    sections["other"] = parsed.raw_text
+    return sections
+
+
 def result_section_text(run, key) -> str:
-    """One of the four result sections, or "" when the run has no such section."""
+    """One of the four result sections (structured or legacy), or ""."""
     if key not in RESULT_KEYS or not (getattr(run, "result", None) or ""):
         return ""
-    return split_result_sections(run.result).get(key, "")
+    return display_sections(parsed_result(run)).get(key, "")
 
 
 def selected_section_text(page) -> str:
@@ -957,16 +984,17 @@ class AnalysisOptionsDialog(QDialog):
 # -------------------------------------------------------------------- results UI
 
 class AnalysisResultDialog(QDialog):
-    """Read-only display of one finished run: four sections, metadata, snapshot."""
+    """Read-only display of one finished run: parsed sections, raw output, snapshot."""
 
     def __init__(self, view, *, parent=None):
         super().__init__(parent)
         self.view = view
         self.run = view.run
         self._dialogs = []
-        self.sections = split_result_sections(self.run.result or "")
+        self.parsed = parsed_result(self.run)
+        self.sections = display_sections(self.parsed)
         self.setWindowTitle("分析结果 · " + self.run.analysis_type)
-        self.resize(1000, 720)
+        self.resize(1000, 760)
         layout = QVBoxLayout(self)
         meta = QFormLayout()
         self.fields = {}
@@ -976,6 +1004,12 @@ class AnalysisResultDialog(QDialog):
         layout.addLayout(meta)
         self.status = plain_label(self.status_text(self.run))
         layout.addWidget(self.status)
+        self.parse_warnings = None
+        if self.run.status == "SUCCEEDED" and self.parsed.warnings:
+            # A parse warning is about presentation, never a model failure.
+            self.parse_warnings = plain_label("解析提示：" + "；".join(self.parsed.warnings))
+            self.parse_warnings.setObjectName("analysisParseWarnings")
+            layout.addWidget(self.parse_warnings)
         self.summary = {"sections": {key: len(self.sections[key]) for key in RESULT_KEYS},
                         "sources": view.sources.total()}
         self.section_views = {}
@@ -996,6 +1030,16 @@ class AnalysisResultDialog(QDialog):
         else:
             layout.addWidget(plain_label(
                 "本次运行未成功，因此不显示模型输出正文。以上错误信息为安全文本（不含密钥）。"))
+        self.raw_output = None
+        if self.run.status == "SUCCEEDED":
+            raw_box = QGroupBox("模型原始输出（原文，永不修改）")
+            raw_box.setObjectName("analysisRawSection")
+            raw_layout = QVBoxLayout(raw_box)
+            self.raw_output = read_only_text(120)
+            self.raw_output.setObjectName("analysisRawOutput")
+            self.raw_output.setPlainText(self.run.result or "")
+            raw_layout.addWidget(self.raw_output)
+            layout.addWidget(raw_box)
         rows = QHBoxLayout()
         self.snapshot_button = QPushButton("查看上下文快照")
         self.snapshot_button.setObjectName("analysisSnapshotButton")
@@ -1015,11 +1059,13 @@ class AnalysisResultDialog(QDialog):
         except (ValueError, TypeError):
             scope = {}
         include = scope.get("include", {})
+        parsed = parse_analysis_result(run.result or "")
         return [("分析类型", "分析类型", run.analysis_type),
                 ("目标", "目标", f"{TARGET_LABELS.get(run.target_type, run.target_type)} · {run.target_id}"),
                 ("Provider", "Provider", run.provider_name),
                 ("模型", "模型", run.model_name),
                 ("状态", "状态", run.status),
+                ("解析状态", "解析状态", parsed.parse_status),
                 ("创建时间", "创建时间（本地时区）", utc_text(run.created_at)),
                 ("完成时间", "完成时间（本地时区）", utc_text(run.completed_at)),
                 ("耗时", "耗时", duration_text(run.duration_ms)),

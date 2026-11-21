@@ -36,6 +36,7 @@ def render_markdown(result: EvaluationRunResult) -> str:
         "- TOKEN_ESTIMATE_BOUND：上下文估算不超预算，超限明确拒绝而非静默截断。",
         "- CONTEXT_ISOLATION：其他 Workspace 的记录不进入上下文。",
         "- CONTEXT_EXPECTATIONS：场景声明的预期上下文断言（含入/排除与文本）。",
+        "- EXPOSURE_MANIFEST：Manifest ↔ source_ids ↔ 上下文实体标记一致，曝光等级不夸大（13.1 起）。",
         "",
         "## 本次没有验证什么",
         "",

@@ -29,6 +29,8 @@ from app.evaluation.models import (DETERMINISTIC, EXPECTED_ERROR_CONTEXT_LIMIT,
                                    ScenarioEvaluationResult)
 from app.services.analysis_repositories import sql_analysis_repositories
 from app.services.context import AnalysisRequest, ContextBuilder
+from app.services.entity_manifest import (CONTENT_INCLUDED, EVIDENCE,
+                                          entity_marker, unmarked_entity_ids)
 from app.services.prompt import PromptBuilder
 from app.services.unit_of_work import transaction
 
@@ -121,6 +123,7 @@ def run_scenario(scenario: EvaluationScenario, dataset: EvaluationDataset, *,
                                           scenario_path))
         metrics.append(_context_expectations(scenario, snapshot, materialized, fixture,
                                              scenario_path))
+        metrics.append(_exposure_manifest(scenario, snapshot, scenario_path))
         metrics.extend(_model_output_na(scenario))
         return ScenarioEvaluationResult(
             scenario_id=scenario.scenario_id, scenario_version=scenario.scenario_version,
@@ -401,4 +404,38 @@ def _fail(metric_id: str, reason: str, evidence=(), details=None) -> MetricResul
 
 def _not_applicable_context_checks(reason: str) -> list[MetricResult]:
     return [MetricResult(metric_id, NOT_APPLICABLE, DETERMINISTIC, reason)
-            for metric_id in ("CONTEXT_BINDING", "PROMPT_LEAKAGE", "CONTEXT_ISOLATION")]
+            for metric_id in ("CONTEXT_BINDING", "PROMPT_LEAKAGE", "CONTEXT_ISOLATION",
+                              "CONTEXT_EXPECTATIONS", "EXPOSURE_MANIFEST")]
+
+
+def _exposure_manifest(scenario, snapshot, scenario_path) -> MetricResult:
+    """Manifest <-> markers <-> source_ids consistency (Phase 13.1)."""
+    manifest = snapshot.entity_manifest
+    rendered = snapshot.rendered_context
+    problems = []
+    if not manifest.entries:
+        return _fail("EXPOSURE_MANIFEST", "缺少 Context Entity Manifest。", (scenario_path,))
+    for entry in manifest.entries:
+        if not entry.exposures:
+            problems.append(f"{entry.entity_type}:{entry.entity_id} 没有曝光等级")
+        if entity_marker(entry.entity_type, entry.entity_id) not in rendered:
+            problems.append(f"{entry.entity_type}:{entry.entity_id} 在上下文中没有标记")
+    unmarked = unmarked_entity_ids(rendered)
+    if unmarked:
+        problems.append("上下文存在未标记的 UUID：" + "、".join(unmarked[:5]))
+    derived = {kind: tuple(values) for kind, values in manifest.source_ids().items()}
+    observed = {kind: tuple(values) for kind, values in snapshot.source_ids().items()}
+    if derived != observed:
+        problems.append("source_ids() 与 Manifest 不一致")
+    if not scenario.request.include_evidence:
+        overstated = [entry.label or str(entry.entity_id)
+                      for entry in manifest.by_type(EVIDENCE)
+                      if CONTENT_INCLUDED in entry.exposures]
+        if overstated:
+            problems.append("证据原文未开启却被标记为已提供原文：" + "、".join(overstated))
+    if problems:
+        return _fail("EXPOSURE_MANIFEST", "；".join(problems), (scenario_path,))
+    return _pass("EXPOSURE_MANIFEST",
+                 f"Manifest {len(manifest.entries)} 个实体：标记、source_ids 与曝光等级一致。",
+                 (scenario_path,), {"manifest_version": manifest.version,
+                                    "entities": len(manifest.entries)})

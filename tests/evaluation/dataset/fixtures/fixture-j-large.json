@@ -41,7 +41,7 @@
       "title_prefix": "批量评估事件",
       "workspace": "main",
       "person": "jin-man",
-      "count": 100,
+      "count": 85,
       "event_type": "Meeting",
       "record_kind": "FACT",
       "occurred_on_base": "2026-06-10",
@@ -55,7 +55,7 @@
       "title_prefix": "批量评估证据",
       "workspace": "main",
       "event_key_prefix": "bulk-ev",
-      "count": 30,
+      "count": 25,
       "content_template": "第 {index} 号合成证据文本，完全虚构，用于增加上下文体积并验证预算守卫。"
     }
   ]

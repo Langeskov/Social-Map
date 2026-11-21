@@ -18,6 +18,8 @@
   "expected_facts": [],
   "required_sources": [
     {"type": "PERSON", "key": "jin-man"},
+    {"type": "PERSON", "key": "jin-2"},
+    {"type": "PERSON", "key": "jin-3"},
     {"type": "RELATIONSHIP", "key": "jin-man-jin-2"},
     {"type": "RELATIONSHIP", "key": "jin-man-jin-3"},
     {"type": "EVENT", "key": "bulk-ev-000"},
@@ -41,6 +43,8 @@
   "expected_context": {
     "included": [
       {"type": "PERSON", "key": "jin-man"},
+      {"type": "PERSON", "key": "jin-2"},
+      {"type": "PERSON", "key": "jin-3"},
       {"type": "EVENT", "key": "bulk-ev-000"},
       {"type": "EVIDENCE", "key": "bulk-evd-000"}
     ],

@@ -56,9 +56,9 @@ def test_bulk_expansion_is_deterministic(dataset):
     assert first == second
     bulk_keys = [key for key in first if key.startswith("bulk-ev-")]
     assert bulk_keys[:3] == ["bulk-ev-000", "bulk-ev-001", "bulk-ev-002"]
-    assert len(bulk_keys) == 100
+    assert len(bulk_keys) == 85
     assert len([item.key for item in fixture.all_evidence()
-                if item.key.startswith("bulk-evd-")]) == 30
+                if item.key.startswith("bulk-evd-")]) == 25
 
 
 def test_dataset_digest_is_stable_and_content_sensitive(dataset, tmp_path):

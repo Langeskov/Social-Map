@@ -5,14 +5,18 @@ builder *renders a factual context*), and it renders an explicit, reproducible
 snapshot. The snapshot is stored on the AnalysisRun, because facts change later and
 a past analysis must still show exactly what the model was given.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta, timezone
+import re
 import unicodedata
 from uuid import UUID
 
+import app.services.entity_manifest as em
 from app.domain.entities import Event, Evidence, Person
 from app.domain.errors import DomainError, NotFoundError
 from app.domain.validation import normalize_datetime, utc_now, validate_uuid
+from app.services.entity_manifest import (ContextEntityManifest, ManifestBuilder,
+                                          entity_marker, person_exposure_note)
 from app.services.rules import workspace_required
 
 LAST_7_DAYS = "LAST_7_DAYS"
@@ -170,6 +174,7 @@ class ContextSnapshot:
     target_type: str = ""
     target_id: UUID | None = None
     analysis_type: str = ""
+    entity_manifest: ContextEntityManifest = field(default_factory=ContextEntityManifest)
 
     @property
     def estimated_tokens(self) -> int:
@@ -183,6 +188,7 @@ class ContextSnapshot:
             "target_id": str(self.target_id) if self.target_id else None,
             "analysis_type": self.analysis_type,
             "scope": self.scope,
+            "entity_manifest": self.entity_manifest.to_mapping(),
             "sections": [{"key": section.key, "title": section.title, "kind": section.kind,
                           "note": section.note, "lines": list(section.lines)}
                          for section in self.sections],
@@ -190,12 +196,26 @@ class ContextSnapshot:
         }
 
     def source_ids(self) -> dict:
-        """Fact ids referenced, grouped by the fact table they belong to."""
+        """Fact ids referenced, grouped by the fact table they belong to.
+
+        Phase 13.1: derived from the Context Entity Manifest, so every id that may
+        be cited is exactly what the model saw. Snapshots stored before the
+        manifest existed fall back to the legacy scope lists unchanged.
+        """
+        if self.entity_manifest.entries:
+            return self.entity_manifest.source_ids()
         scope = self.scope
         return {"PERSON": tuple(scope.get("person_ids", ())),
                 "RELATIONSHIP": tuple(scope.get("relationship_ids", ())),
                 "EVENT": tuple(scope.get("event_ids", ())),
                 "EVIDENCE": tuple(scope.get("evidence_ids", ()))}
+
+    @property
+    def included_memory_ids(self) -> tuple:
+        """Memory ids shown to the model (manifest-driven; legacy fallback)."""
+        if self.entity_manifest.entries:
+            return self.entity_manifest.memory_ids()
+        return tuple(self.scope.get("included_memory_ids", ()))
 
 
 class ContextBuilder:
@@ -279,8 +299,8 @@ class ContextBuilder:
         return ContextSection(key=name, title=name, kind=kind, lines=tuple(lines), note=note)
 
     # --------------------------------------------------------------- memories
-    def _memory_section(self, repositories, request, person_ids, collected):
-        """Renders user-confirmed memories; appends the included ids to `collected`."""
+    def _memory_section(self, repositories, request, person_ids, manifest):
+        """Renders user-confirmed memories and records them in the manifest."""
         found: dict[UUID, object] = {}
         if request.include_memories:
             # Workspace-level memories plus the memories of every person in scope.
@@ -300,14 +320,17 @@ class ContextBuilder:
             return None
         lines = []
         for memory in sorted(found.values(), key=lambda item: (item.kind, item.content)):
-            collected.append(str(memory.id))
+            manifest.add(em.MEMORY, memory.id, label=memory.content[:80],
+                         role=em.ROLE_WORKSPACE_MEMORY if memory.person_id is None
+                         else em.ROLE_PERSON_MEMORY,
+                         exposure=em.USER_CONFIRMED_CONTENT)
             period = ""
             if memory.valid_from or memory.valid_until:
                 period = (f" · 有效期={memory.valid_from.isoformat() if memory.valid_from else '不限'}"
                           f"→{memory.valid_until.isoformat() if memory.valid_until else '不限'}")
             scope_label = "人物" if memory.person_id else "Workspace"
-            lines.append(f"[{memory.kind}] {memory.content} · 范围={scope_label}"
-                         f" · 来源={memory.source_type}"
+            lines.append(f"{entity_marker(em.MEMORY, memory.id)} [{memory.kind}] {memory.content}"
+                         f" · 范围={scope_label} · 来源={memory.source_type}"
                          f" · 确认于 {memory.confirmed_at.isoformat()}{period}")
         return ContextSection("memories", "用户确认的长期记忆（Memory）", FACT, tuple(lines),
                               note="由用户确认，可能已经过时，不是数据库事实")
@@ -317,21 +340,21 @@ class ContextBuilder:
         repositories = self._repositories
         self._require_workspace(repositories, request.workspace_id)
         window = request.window()
+        manifest = ManifestBuilder()
         if request.target_type == "PERSON":
-            sections, scope = self._person_context(repositories, request, window)
+            sections, scope = self._person_context(repositories, request, window, manifest)
         elif request.target_type == "RELATIONSHIP":
-            sections, scope = self._relationship_context(repositories, request, window)
+            sections, scope = self._relationship_context(repositories, request, window, manifest)
         elif request.target_type == "EVENT":
-            sections, scope = self._event_context(repositories, request, window)
+            sections, scope = self._event_context(repositories, request, window, manifest)
         else:
             raise DomainError("ContextBuilder 支持 PERSON、RELATIONSHIP、EVENT。")
 
         # Memories are opt-in and only the *current* ones are eligible: a deleted or
         # expired memory never reaches a model, even when explicitly selected.
-        memory_ids = []
         if request.include_memories or request.selected_memory_ids:
             section = self._memory_section(repositories, request, scope.get("person_ids", ()),
-                                           memory_ids)
+                                           manifest)
             if section is not None:
                 sections.append(section)
 
@@ -346,17 +369,21 @@ class ContextBuilder:
                             "memories": request.include_memories}
         scope["selected_event_ids"] = [str(value) for value in request.selected_event_ids]
         scope["selected_evidence_ids"] = [str(value) for value in request.selected_evidence_ids]
-        scope["included_memory_ids"] = [str(value) for value in memory_ids]
+        built_manifest = manifest.build()
+        # Legacy copy only; the manifest is the authority for source ids.
+        scope["included_memory_ids"] = [str(value) for value in built_manifest.memory_ids()]
         snapshot = ContextSnapshot(analysis_run_id=analysis_run_id, generated_at=self._clock(),
                                    scope=scope, rendered_context="", sections=tuple(sections),
                                    target_type=request.target_type, target_id=request.target_id,
-                                   analysis_type=request.analysis_type)
+                                   analysis_type=request.analysis_type,
+                                   entity_manifest=built_manifest)
         rendered = _render(snapshot)
         snapshot = ContextSnapshot(analysis_run_id=analysis_run_id,
                                    generated_at=snapshot.generated_at, scope=scope,
                                    rendered_context=rendered, sections=tuple(sections),
                                    target_type=request.target_type, target_id=request.target_id,
-                                   analysis_type=request.analysis_type)
+                                   analysis_type=request.analysis_type,
+                                   entity_manifest=built_manifest)
         guard = snapshot.estimated_tokens
         if guard > request.max_context_tokens:
             raise DomainError(
@@ -366,11 +393,15 @@ class ContextBuilder:
         return snapshot
 
     # --------------------------------------------------------------- per target
-    def _person_context(self, repositories, request, window):
+    def _person_context(self, repositories, request, window, manifest):
         person = repositories.people.get(request.workspace_id, request.target_id)
         if person is None:
             raise NotFoundError("人物不属于当前 Workspace，或已经归档。")
-        sections = [ContextSection("target", "目标人物", FACT, (self._person_line(person),))]
+        manifest.add(em.PERSON, person.id, label=person.display_name,
+                     role=em.ROLE_TARGET, exposure=em.PROFILE)
+        sections = [ContextSection("target", "目标人物", FACT,
+                                   (f"{entity_marker(em.PERSON, person.id)} "
+                                    f"{self._person_line(person)}",))]
         aliases = repositories.aliases.list(request.workspace_id, person.id)
         if aliases:
             sections.append(ContextSection("aliases", "别称", FACT,
@@ -385,8 +416,19 @@ class ContextBuilder:
                                                 else view.person_a_id, include_deleted=True)
                 label = other.display_name if other is not None else "（已归档人物）"
                 relationship_ids.append(view.id)
+                manifest.add(em.RELATIONSHIP, view.id, label=view.relationship_type,
+                             role=em.ROLE_PERSON_RELATIONSHIP, exposure=em.RELATIONSHIP_FACT)
+                if other is not None:
+                    manifest.add(em.PERSON, other.id, label=other.display_name,
+                                 role=em.ROLE_RELATIONSHIP_ENDPOINT,
+                                 exposure=em.IDENTITY_ONLY)
+                    other_text = (f"{entity_marker(em.PERSON, other.id)} {label}"
+                                  f"{person_exposure_note((em.IDENTITY_ONLY,))}")
+                else:
+                    other_text = label
                 relationship_lines.append(
-                    f"{view.relationship_type} · {view.directionality} · 对方={label} · id={view.id}")
+                    f"{entity_marker(em.RELATIONSHIP, view.id)} {view.relationship_type}"
+                    f" · {view.directionality} · 对方={other_text}")
             if request.include_history and relationship_ids:
                 histories = repositories.histories.list_by_workspace(request.workspace_id)
                 for history in histories:
@@ -394,44 +436,59 @@ class ContextBuilder:
                         continue
                     if not _history_in_window(history, window):
                         continue
+                    if history.event_id is not None:
+                        # Only the link is shown here, never the event detail.
+                        manifest.add(em.EVENT, history.event_id, role=em.ROLE_LINKED_EVENT,
+                                     exposure=em.EVENT_REFERENCE)
                     history_lines.append(_history_line(history, window))
         if relationship_lines:
             sections.append(ContextSection("relationships", "当前关系", FACT, tuple(relationship_lines)))
         if history_lines:
             sections.append(ContextSection("history", "关系历史（effective_at）", FACT,
-                                           tuple(sorted(history_lines))))
+                                           tuple(sorted(history_lines, key=_marker_stripped))))
         events = self._target_events(repositories, request, window, (person.id,))
-        event_sections, ids = self._event_sections(repositories, request, events)
+        event_sections, ids = self._event_sections(repositories, request, events, manifest)
         sections.extend(event_sections)
         scope = {"target": "PERSON", "person_ids": [str(person.id)],
                  "relationship_ids": [str(value) for value in relationship_ids],
                  "event_ids": ids["event_ids"], "evidence_ids": ids["evidence_ids"]}
         return sections, scope
 
-    def _relationship_context(self, repositories, request, window):
+    def _relationship_context(self, repositories, request, window, manifest):
         relationship = repositories.relationships.get(request.workspace_id, request.target_id,
                                                       include_deleted=False)
         if relationship is None:
             raise NotFoundError("关系不属于当前 Workspace，或已删除。")
+        manifest.add(em.RELATIONSHIP, relationship.id, label=relationship.relationship_type,
+                     role=em.ROLE_TARGET, exposure=em.RELATIONSHIP_FACT)
         first = repositories.people.get(request.workspace_id, relationship.person_a_id, include_deleted=True)
         second = repositories.people.get(request.workspace_id, relationship.person_b_id, include_deleted=True)
-        sections = [ContextSection("target", "目标关系", FACT,
-                                   (f"{relationship.relationship_type} · {relationship.directionality}"
-                                    f" · id={relationship.id}",
-                                    f"A={first.display_name if first else '（缺失）'}",
-                                    f"B={second.display_name if second else '（缺失）'}"))]
+        endpoint_lines = [f"{entity_marker(em.RELATIONSHIP, relationship.id)} "
+                          f"{relationship.relationship_type} · {relationship.directionality}"]
+        for side, person in (("A", first), ("B", second)):
+            if person is None:
+                endpoint_lines.append(f"{side}=（缺失）")
+                continue
+            manifest.add(em.PERSON, person.id, label=person.display_name,
+                         role=em.ROLE_RELATIONSHIP_ENDPOINT, exposure=em.IDENTITY_ONLY)
+            endpoint_lines.append(
+                f"{side}={entity_marker(em.PERSON, person.id)} {person.display_name}"
+                f"{person_exposure_note((em.IDENTITY_ONLY,))}")
+        sections = [ContextSection("target", "目标关系", FACT, tuple(endpoint_lines))]
         history_lines, event_ids = [], set()
         if request.include_history:
             for history in repositories.histories.list_by_relationship(request.workspace_id,
                                                                        relationship.id):
                 if not _history_in_window(history, window):
                     continue
-                history_lines.append(_history_line(history, window))
                 if history.event_id is not None:
                     event_ids.add(history.event_id)
+                    manifest.add(em.EVENT, history.event_id, role=em.ROLE_LINKED_EVENT,
+                                 exposure=em.EVENT_REFERENCE)
+                history_lines.append(_history_line(history, window))
         if history_lines:
             sections.append(ContextSection("history", "关系历史（effective_at）", FACT,
-                                           tuple(sorted(history_lines))))
+                                           tuple(sorted(history_lines, key=_marker_stripped))))
         events = self._target_events(repositories, request, window,
                                      (relationship.person_a_id, relationship.person_b_id))
         for identifier in event_ids:
@@ -439,31 +496,45 @@ class ContextBuilder:
                 extra = repositories.events.get(request.workspace_id, identifier, include_deleted=True)
                 if extra is not None:
                     events.append(extra)
-        event_sections, ids = self._event_sections(repositories, request, events)
+        event_sections, ids = self._event_sections(repositories, request, events, manifest)
         sections.extend(event_sections)
         scope = {"target": "RELATIONSHIP", "relationship_ids": [str(relationship.id)],
                  "person_ids": [str(relationship.person_a_id), str(relationship.person_b_id)],
                  "event_ids": ids["event_ids"], "evidence_ids": ids["evidence_ids"]}
         return sections, scope
 
-    def _event_context(self, repositories, request, window):
+    def _event_context(self, repositories, request, window, manifest):
         event = repositories.events.get(request.workspace_id, request.target_id, include_deleted=True)
         if event is None:
             raise NotFoundError("Event 不属于当前 Workspace。")
+        manifest.add(em.EVENT, event.id, label=event.title,
+                     role=em.ROLE_TARGET, exposure=em.EVENT_DETAIL)
         participants = repositories.participants.list_by_event(request.workspace_id, event.id)
-        lines = [self._event_line(event)]
+        lines = [f"{entity_marker(em.EVENT, event.id)} {self._event_line(event)}"]
         for item in participants:
             person = repositories.people.get(request.workspace_id, item.person_id, include_deleted=True)
-            name = person.display_name if person is not None else "（已归档人物）"
+            if person is not None:
+                manifest.add(em.PERSON, person.id, label=person.display_name,
+                             role=em.ROLE_EVENT_PARTICIPANT, exposure=em.PARTICIPANT_CONTEXT)
+                name = (f"{entity_marker(em.PERSON, person.id)} {person.display_name}"
+                        f"{person_exposure_note((em.PARTICIPANT_CONTEXT,))}")
+            else:
+                name = "（已归档人物）"
             lines.append(f"参与人：{name}" + (f" · role={item.role}" if item.role else "")
                          + (f" · note={_collapse(item.note)}" if item.note else ""))
         sections = [ContextSection("target", "目标事件", FACT, tuple(lines))]
-        event_sections, ids = self._event_sections(repositories, request, [event],
+        event_sections, ids = self._event_sections(repositories, request, [event], manifest,
                                                    skip_ids={event.id})
         sections.extend(event_sections)
         history_lines = []
         for history in repositories.histories.list_by_event(request.workspace_id, event.id):
-            history_lines.append(_history_line(history, window))
+            relationship = repositories.relationships.get(
+                request.workspace_id, history.relationship_id, include_deleted=True)
+            manifest.add(em.RELATIONSHIP, history.relationship_id,
+                         label=relationship.relationship_type if relationship is not None else "",
+                         role=em.ROLE_EVENT_HISTORY, exposure=em.RELATIONSHIP_FACT)
+            history_lines.append(_history_line(
+                history, window, prefix=f"{entity_marker(em.RELATIONSHIP, history.relationship_id)} "))
         if history_lines:
             sections.append(ContextSection("linked_history", "与该事件关联的关系历史", FACT,
                                            tuple(sorted(history_lines))))
@@ -475,15 +546,17 @@ class ContextBuilder:
                  "evidence_ids": ids["evidence_ids"]}
         return sections, scope
 
-    def _event_sections(self, repositories, request, events, *, skip_ids=frozenset()):
+    def _event_sections(self, repositories, request, events, manifest, *, skip_ids=frozenset()):
         """Render event/observation/evidence sections and return the ids referenced."""
         sections, ids = [], {"event_ids": [], "evidence_ids": []}
         fact_lines, observation_lines = [], []
         evidence_lines, content_lines = [], []
         for event in events:
             if event.id not in skip_ids:
+                manifest.add(em.EVENT, event.id, label=event.title,
+                             role=em.ROLE_LINKED_EVENT, exposure=em.EVENT_DETAIL)
                 (observation_lines if event.record_kind == OBSERVATION else fact_lines).append(
-                    self._event_line(event))
+                    f"{entity_marker(em.EVENT, event.id)} {self._event_line(event)}")
             ids["event_ids"].append(str(event.id))
             selected = set(request.selected_evidence_ids)
             for evidence in repositories.evidence.list_by_event(request.workspace_id, event.id,
@@ -497,39 +570,50 @@ class ContextBuilder:
                     if model is not None:
                         attachment_names.append(f"{model.mime_type}/{model.size_bytes}B")
                 evidence_lines.append(
+                    f"{entity_marker(em.EVIDENCE, evidence.id)} "
                     f"{self._evidence_metadata_line(evidence, attachment_names)} （事件：{event.title}）")
                 ids["evidence_ids"].append(str(evidence.id))
+                content_provided = bool(request.include_evidence and
+                                        (evidence.content_text or evidence.annotation))
+                manifest.add(em.EVIDENCE, evidence.id, label=evidence.title,
+                             role=em.ROLE_EVENT_EVIDENCE,
+                             exposure=(em.CONTENT_INCLUDED if content_provided
+                                       else em.METADATA_ONLY))
                 # Raw text (and the user annotation) only when explicitly requested;
                 # binaries are never included.
                 if request.include_evidence:
+                    marker = entity_marker(em.EVIDENCE, evidence.id)
                     if evidence.content_text:
-                        content_lines.append(f"（事件：{event.title}｜{evidence.title}）"
+                        content_lines.append(f"{marker} （事件：{event.title}｜{evidence.title}）"
                                              f"{_collapse(evidence.content_text)}")
                     if evidence.annotation:
-                        content_lines.append(f"（用户注释｜{evidence.title}）{_collapse(evidence.annotation)}")
+                        content_lines.append(f"{marker} （用户注释｜{evidence.title}）"
+                                             f"{_collapse(evidence.annotation)}")
         if fact_lines:
-            sections.append(ContextSection("events", "事件（FACT）", FACT, tuple(sorted(fact_lines))))
+            sections.append(ContextSection("events", "事件（FACT）", FACT,
+                                           tuple(sorted(fact_lines, key=_marker_stripped))))
         if observation_lines and request.include_observations:
             sections.append(ContextSection("observations", "用户记录的观察（OBSERVATION）", OBSERVATION,
-                                           tuple(sorted(observation_lines))))
+                                           tuple(sorted(observation_lines, key=_marker_stripped))))
         if evidence_lines:
             note = "含用户明确选择的原文" if request.include_evidence else "仅元数据（未发送原文）"
             sections.append(ContextSection("evidence", f"证据（{note}）", FACT,
-                                           tuple(sorted(evidence_lines)), note=note))
+                                           tuple(sorted(evidence_lines, key=_marker_stripped)),
+                                           note=note))
         if content_lines:
             sections.append(ContextSection("evidence_content", "证据原文（用户明确选择）", FACT,
-                                           tuple(sorted(content_lines))))
+                                           tuple(sorted(content_lines, key=_marker_stripped))))
         return sections, ids
 
 
-def _history_line(history, window) -> str:
+def _history_line(history, window, *, prefix="") -> str:
     when = history.effective_at.isoformat()
     marker = "" if history.effective_at <= window.as_of else "（计划中，截至 as_of 尚未生效）"
-    text = f"{when} · {history.state}{marker}"
+    text = f"{prefix}{when} · {history.state}{marker}"
     if history.note:
         text += f" · note={_collapse(history.note)}"
     if history.event_id:
-        text += f" · event={history.event_id}"
+        text += f" · event={entity_marker(em.EVENT, history.event_id)}"
     return text
 
 
@@ -544,6 +628,16 @@ def _history_in_window(history, window) -> bool:
 def _collapse(text: str | None, limit: int = 400) -> str:
     value = " ".join((text or "").split())
     return value if len(value) <= limit else value[:limit] + "…"
+
+
+_MARKER_PATTERN = re.compile(
+    r"\[(?:PERSON|RELATIONSHIP|EVENT|EVIDENCE|MEMORY):"
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\]\s*")
+
+
+def _marker_stripped(line: str) -> str:
+    """Sort key that ignores run-local UUID markers (deterministic across runs)."""
+    return _MARKER_PATTERN.sub("", line)
 
 
 def _render(snapshot: ContextSnapshot) -> str:
@@ -569,14 +663,20 @@ def _render(snapshot: ContextSnapshot) -> str:
 
 
 def snapshot_from_mapping(data: dict) -> ContextSnapshot:
-    """Rebuild a stored snapshot (used by the UI and by tests)."""
+    """Rebuild a stored snapshot (used by the UI and by tests).
+
+    Snapshots written before Phase 13.1 have no entity manifest; they rebuild with
+    an empty manifest and keep the legacy scope-based source rules.
+    """
     sections = tuple(ContextSection(key=item.get("key", ""), title=item.get("title", ""),
                                     kind=item.get("kind", FACT), note=item.get("note"),
                                     lines=tuple(item.get("lines", ())))
                      for item in data.get("sections", ()))
+    manifest = ContextEntityManifest.from_mapping(data.get("entity_manifest"))
     return ContextSnapshot(analysis_run_id=UUID(data["analysis_run_id"]) if data.get("analysis_run_id") else None,
                            generated_at=datetime.fromisoformat(data["generated_at"]),
                            scope=dict(data.get("scope", {})), rendered_context=data.get("rendered_context", ""),
                            sections=sections, target_type=data.get("target_type", ""),
                            target_id=UUID(data["target_id"]) if data.get("target_id") else None,
-                           analysis_type=data.get("analysis_type", ""))
+                           analysis_type=data.get("analysis_type", ""),
+                           entity_manifest=manifest or ContextEntityManifest())

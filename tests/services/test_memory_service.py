@@ -87,7 +87,9 @@ def fact_rows(env):
 def test_analysis_sources_can_locate_real_facts(env):
     run = analyze(env)
     view = env.services.analysis.get(env.ws, run.id)
-    assert {source.target_id for source in view.sources.people} == {env.person.id}
+    # Phase 13.1 exposure contract: the relationship endpoint is shown by name
+    # (IDENTITY_ONLY) and is therefore a recorded Person source as well.
+    assert {source.target_id for source in view.sources.people} == {env.person.id, env.other.id}
     assert {source.target_id for source in view.sources.events} == {env.event.id}
     assert {source.target_id for source in view.sources.evidence} == {env.evidence.id}
     # A source is a reference: the fact is still reachable through its own service.

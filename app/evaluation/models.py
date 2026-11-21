@@ -572,8 +572,8 @@ METRIC_DEFINITIONS: dict[str, MetricDefinition] = {
             "且曝光等级如实反映实际提供的内容。",
             "13.1 起：核对 Manifest 条目与渲染标记 [TYPE:<uuid>]、source_ids()、analysis_*_source，"
             "并检查 Evidence METADATA_ONLY / PERSON IDENTITY_ONLY 等等级不被夸大。",
-            "上下文构建 + 来源集", False, False, False,
-            "Context Entity Manifest 联动在 Phase 13.1 提供（本阶段无 Manifest 可核对）。"),
+            "上下文构建 + 来源集", False, False, True,
+            ""),
     )
 }
 

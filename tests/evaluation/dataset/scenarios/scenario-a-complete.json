@@ -25,6 +25,8 @@
   ],
   "required_sources": [
     {"type": "PERSON", "key": "alice"},
+    {"type": "PERSON", "key": "bob"},
+    {"type": "PERSON", "key": "carol"},
     {"type": "RELATIONSHIP", "key": "alice-bob"},
     {"type": "RELATIONSHIP", "key": "alice-carol"},
     {"type": "EVENT", "key": "expo-prep"},
@@ -57,6 +59,8 @@
   "expected_context": {
     "included": [
       {"type": "PERSON", "key": "alice"},
+      {"type": "PERSON", "key": "bob"},
+      {"type": "PERSON", "key": "carol"},
       {"type": "RELATIONSHIP", "key": "alice-bob"},
       {"type": "RELATIONSHIP", "key": "alice-carol"},
       {"type": "EVENT", "key": "expo-prep"},

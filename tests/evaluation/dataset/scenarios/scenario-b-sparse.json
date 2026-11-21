@@ -20,6 +20,7 @@
   ],
   "required_sources": [
     {"type": "PERSON", "key": "xiao-zhao"},
+    {"type": "PERSON", "key": "lao-zhou"},
     {"type": "RELATIONSHIP", "key": "xiao-zhao-lao-zhou"}
   ],
   "forbidden_claims": [
@@ -42,6 +43,7 @@
   "expected_context": {
     "included": [
       {"type": "PERSON", "key": "xiao-zhao"},
+      {"type": "PERSON", "key": "lao-zhou"},
       {"type": "RELATIONSHIP", "key": "xiao-zhao-lao-zhou"}
     ],
     "excluded": [],

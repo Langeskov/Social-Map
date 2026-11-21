@@ -154,7 +154,8 @@ def test_analysis_metadata_is_exported_but_results_need_opt_in(env):
     record = data["analysis"][0]
     assert record["provider_name"] == "fake" and record["model_name"] == "fake-model"
     assert record["status"] == "SUCCEEDED" and record["analysis_type"] == "PERSON_PROFILE"
-    assert record["sources"]["person"] == [str(env.person.id)]
+    # Phase 13.1: the relationship endpoint ("导出伙伴", IDENTITY_ONLY) is a source too.
+    assert set(record["sources"]["person"]) == {str(env.person.id), str(env.partner.id)}
     assert "result" not in record and "context_snapshot" not in record
     assert record["result_included"] is False and record["context_snapshot_included"] is False
     assert "私有回答正文" not in json.dumps(data, ensure_ascii=False)

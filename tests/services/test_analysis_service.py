@@ -132,13 +132,15 @@ def test_snapshot_is_persisted_and_replayable(env):
 def test_sources_are_persisted_per_fact_table(env):
     run = env.services.analysis.create_run(request_for(env))
     view = env.services.analysis.get(env.ws, run.id)
-    assert {source.target_id for source in view.sources.people} == {env.person.id}
+    # Phase 13.1 source exposure: the relationship endpoint "另一个人" appears by
+    # name in the context (IDENTITY_ONLY), so it is a recorded Person source too.
+    assert {source.target_id for source in view.sources.people} == {env.person.id, env.other.id}
     assert {source.target_id for source in view.sources.events} == {env.event.id}
     assert {source.target_id for source in view.sources.evidence} == {env.evidence.id}
     assert view.sources.total() >= 3
     with transaction(env.runtime.sessions) as session:
         rows = session.scalars(select(AnalysisPersonSourceModel)).all()
-        assert [row.workspace_id for row in rows] == [env.ws]
+        assert [row.workspace_id for row in rows] == [env.ws, env.ws]
         assert session.scalar(select(func.count()).select_from(AnalysisRunModel)) == 1
 
 
@@ -273,10 +275,13 @@ def test_prompt_separates_facts_observations_interpretations_and_uncertainties(e
     user = body["messages"][-1]["content"]
     context = body["messages"][1]["content"]
     assert body["messages"][0]["role"] == "system"
-    for phrase in ("不能修改", "Observation", "Inference", "不得编造", "不确定性", "好感度"):
+    for phrase in ("不能修改", "Observation", "Inference", "不得编造", "不确定性", "好感度",
+                   "[TYPE:<uuid>]", "不得编造 UUID"):
         assert phrase in system
-    for heading in ("Facts", "Observations", "Interpretations", "Uncertainties"):
-        assert heading in user
+    # Phase 13.1: the output contract is structured JSON schema 1 with references.
+    for key in ("schema_version", "facts", "observations", "interpretations",
+                "uncertainties", "references", "confidence_description"):
+        assert f'"{key}"' in user
     assert "事实上下文" in context and "OBSERVATION" in system
 
 

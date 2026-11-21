@@ -20,6 +20,7 @@
   ],
   "required_sources": [
     {"type": "PERSON", "key": "lin-man"},
+    {"type": "PERSON", "key": "chen-xu"},
     {"type": "RELATIONSHIP", "key": "lin-man-chen-xu"}
   ],
   "forbidden_claims": [
@@ -42,6 +43,7 @@
   "expected_context": {
     "included": [
       {"type": "PERSON", "key": "lin-man"},
+      {"type": "PERSON", "key": "chen-xu"},
       {"type": "RELATIONSHIP", "key": "lin-man-chen-xu"}
     ],
     "excluded": [],

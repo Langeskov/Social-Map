@@ -115,12 +115,11 @@ def test_same_inputs_reproduce_same_results(dataset, tmp_path):
         assert [(m.metric_id, m.status) for m in left[scenario_id].metrics] == \
                [(m.metric_id, m.status) for m in right[scenario_id].metrics]
         # Logical content reproduces byte-for-byte after masking declared
-        # volatile values (run-local timestamps and row UUIDs).
+        # volatile values (run-local timestamps and materialized row UUIDs; since
+        # Phase 13.1 every rendered entity carries a [TYPE:<uuid>] marker, so the
+        # markers are the only UUID-bearing tokens in the context).
         assert left[scenario_id].context.scope["masked_digest"] == \
                right[scenario_id].context.scope["masked_digest"], scenario_id
-    # The uuid-free, memory-free scenario must reproduce raw as well.
-    assert left["SCENARIO_G_ALL"].context.rendered_digest == \
-           right["SCENARIO_G_ALL"].context.rendered_digest
     # Declared volatile fields are explicit in the run result.
     assert "run_id" in first.volatile_fields
 

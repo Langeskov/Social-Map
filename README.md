@@ -1,6 +1,6 @@
 # Relationship Intelligence System
 
-本地优先的人际关系知识库。当前实现 **Phase 11 — V1 UI/UX / Interaction Hardening**：把 Phase 1–10 的功能整合成统一、稳定、可长期使用的「个人关系情报工作台」（统一 Design System、单一 Workspace 上下文与 Context Reset、FACT／USER／DERIVED 认知标识、层标识贯穿全站、显式状态矩阵），**不改业务 schema、不新增 migration、不改 Domain 语义、无动画**。Phase 10 交付的稳定性能力（完整性审计、备份与恢复校验、导出）保持不变。
+本地优先的人际关系知识库。当前实现 **Phase 12 — Person Investigation Console（人物调查工作台）**：以人物为入口，连续查看身份、关系、事件、证据与分析记录，并始终保留数据来源与事实边界（FACT／USER／DERIVED 认知标识、五层层标识、统一 Design System、单一 Workspace 上下文与 Context Reset、分析运行期 Workspace 锁定），**不改业务 schema、不新增 migration、不改 Domain 语义、无动画**。Phase 10 交付的稳定性能力（完整性审计、备份与恢复校验、导出）保持不变。
 
 ## 当前可用功能
 
@@ -9,11 +9,12 @@
 - 头像与 Gallery、同 Workspace 媒体去重、多人物复用；原图查看与缩放。
 - Person Detail 的 Relationships：添加关系、修改状态、查看历史、删除错误记录及恢复记录。
 - Events：基础搜索、新建、日期／时段、FACT／OBSERVATION、多人物参与、编辑、软删除／恢复、详情。
-- Person Detail 的 Events Timeline；参与人角色／备注、Archived 历史保留；显式关联／解绑 History，不自动改关系状态。
+- Person Detail 的 Activity 时间线（Event + 关系状态变更）；Workspace 整体时间线在 Events 页独立入口；参与人角色／备注、Archived 历史保留；显式关联／解绑 History，不自动改关系状态。
 - Event Detail 的 Evidence：原始文本／链接／文件证据、来源信息、附件（复用已有 Media 或导入新文件）、metadata 编辑、删除／恢复。
 - **Unified Search**：SQLite FTS5 统一搜索 Person／Alias／Event／Evidence，含中文分词、来源/摘要显示与索引重建。
-- **Timeline**：Person Timeline 与 Workspace Timeline（Event + 关系状态变更，含未来与补录时间）。
-- **Relationship Graph**：Person 为节点、Relationship 为边，可拖动／缩放／过滤，点击进入详情。
+- **人物调查工作台（People 页）**：左侧人物索引、中间人物档案 + **Ego Network**（当前人物一层直接关系，复用全局 Graph 的绘制实现，不推断、不落库）、右侧 Inspector（关系管理／Activity／Evidence／Memory／Analysis，宽屏侧栏、窄屏底部抽屉）。Activity 选中事件进入事件详情、选中关系变更进入关系详情；Evidence 采用「列表 + 阅读器」主从结构，原始内容只读（FACT）与用户注释（USER）分区展示，所属 Event 始终可追踪。归档人物按只读契约展示（身份与存留别称可读，图片引用如实标注已解绑）。
+- **Timeline**：人物 **Activity 时间线**（Event + 关系状态变更，含未来与补录时间、UPCOMING／PAST 过滤）与 Events 页的 **Workspace Timeline**（独立 Tab 入口）。
+- **Relationship Graph**：Person 为节点、Relationship 为边，可拖动／缩放／过滤，点击进入详情；Ego Network 与全局 Graph 共用同一绘图实现。
 - **Dashboard**：真实统计（人物数、活跃关系数、7/30 天 Event 与 Evidence 数）与最近人物／Event／关系变更／Evidence。
 - **Analysis**：Person／Relationship／Event 的按需分析（**用户点击才调用模型**），可选时间范围与上下文范围、预览将要发送的上下文、查看 Analysis History 与四段式结果。
 - **LLM Provider**：OpenAI-compatible 配置（base_url／model／temperature／timeout／extra_headers／credential_ref）与连接测试；**API Key 只以引用形式存在，不入库、不入日志**。
@@ -85,7 +86,7 @@ python -m app.main
 
 进入 **Events**，明确选择 Workspace。新建事件时填写标题、类型和 FACT／OBSERVATION，日期（`YYYY-MM-DD`）与包含时区的开始时间严格二选一；结束时间可空，不能早于开始。勾选多个人物，可填写角色／备注。
 
-选中事件后可编辑、添加／移除参与人、软删除、显示已删除并恢复。Person Detail 的 **Events Timeline** 按发生时间最新在前；点击可操作详情，编辑、参与人和 History 关联操作后会刷新。
+选中事件后可编辑、添加／移除参与人、软删除、显示已删除并恢复。人物 **Activity 时间线**（Event + 关系状态变更）按发生时间最新在前；点击可操作详情，编辑、参与人和 History 关联操作后会刷新。
 
 Archived 人物不能新增参与；已有历史参与记录保留并标记 Archived。Event 删除／恢复不删参与人或历史引用，不改变关系状态。**共同参与不等于关系 ACTIVE。**
 
@@ -124,7 +125,7 @@ busy_timeout_ms = 5000
 
 ## 已有数据库升级
 
-旧库不会静默升级。升级前关闭操作该目录的程序，手工保留整个数据根目录副本；**当前程序没有实现backup/恢复功能**。
+旧库不会静默升级。升级前关闭操作该目录的程序，并用 Settings 的 `[Create Backup]` 生成一次一致快照（或至少手工保留整个数据根目录副本）；升级本身不是备份。
 
 ```powershell
 & .\.venv\Scripts\python.exe -s -m alembic upgrade head
@@ -202,7 +203,7 @@ python -m pytest tests/domain tests/repositories tests/services tests/ui -q
 python -m app.main --config C:\temporary\runtime.toml --smoke-test
 ```
 
-Phase 4 历史基线 **662项：657 passed、5 environment-skipped、0 failed**，见 [Phase4验收记录](<docs/phase4-verification.md>)；Phase 5 见 [Phase5验收记录](<docs/phase5-verification.md>)；Phase 6 见 [Phase6验收记录](<docs/phase6-verification.md>)；Phase 7 见 [Phase7验收记录](<docs/phase7-verification.md>)。Phase 8 见 [Phase8验收记录](<docs/phase8-verification.md>)。Phase 9 见 [Phase9验收记录](<docs/phase9-verification.md>)。Phase 10 全量回归 **1378项：1373 passed、5 environment-skipped、0 failed**，含只读审计、WAL 一致快照、恢复校验、导出隐私与 Settings 手动操作，见 [Phase10验收记录](<docs/phase10-verification.md>)。Phase 11 最终全量回归 **1483项：1478 passed、5 environment-skipped、0 failed，退出码0**（含评审后增量：删除重复 Event-only Timeline 并把断言迁移到完整 Timeline、ContextBar 对象段、Ctrl+S 保存并关闭、本地 git 基线），见 [Phase11验收记录](<docs/phase11-verification.md>)；真实 Windows DPI 人工验收在该记录中明确标注为「未检查」，不记为通过。5项 Windows symlink 权限 skipped 保留原测试与原因，不计为 passed。
+Phase 4 历史基线 **662项：657 passed、5 environment-skipped、0 failed**，见 [Phase4验收记录](<docs/phase4-verification.md>)；Phase 5 见 [Phase5验收记录](<docs/phase5-verification.md>)；Phase 6 见 [Phase6验收记录](<docs/phase6-verification.md>)；Phase 7 见 [Phase7验收记录](<docs/phase7-verification.md>)。Phase 8 见 [Phase8验收记录](<docs/phase8-verification.md>)。Phase 9 见 [Phase9验收记录](<docs/phase9-verification.md>)。Phase 10 全量回归 **1378项：1373 passed、5 environment-skipped、0 failed**，含只读审计、WAL 一致快照、恢复校验、导出隐私与 Settings 手动操作，见 [Phase10验收记录](<docs/phase10-verification.md>)。Phase 11 全量回归 **1483项：1478 passed、5 environment-skipped、0 failed，退出码0**（含评审后增量：删除重复 Event-only Timeline 并把断言迁移到完整 Timeline、ContextBar 对象段、Ctrl+S 保存并关闭、本地 git 基线），见 [Phase11验收记录](<docs/phase11-verification.md>)。Phase 12（人物调查工作台）全量回归 **1515项：1510 passed、5 environment-skipped、0 failed，退出码0**，见 [Phase12验收记录](<docs/phase12-verification.md>)；真实 Windows DPI 人工验收在 Phase 11/12 记录中均明确标注为「未检查」，不记为通过。5项 Windows symlink 权限 skipped 保留原测试与原因，不计为 passed。
 
 **已知运行前提：** SQLite 删除 FTS5 虚表需要可写的临时目录；受限宿主（本仓库开发环境）必须把 `SQLITE_TMPDIR`／`TMPDIR`／`TEMP`／`TMP` 指向可写目录后再执行迁移，否则会得到 `SQLITE_CANTOPEN`。测试由 `conftest.py` 自动处理。
 

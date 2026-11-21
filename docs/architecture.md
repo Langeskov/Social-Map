@@ -108,6 +108,30 @@ MainWindow
 - **唯一非 UI 扩展**：`DashboardService.recent_analysis()`（只读，保持 `snapshot()` 的既有查询数上限），
   用于 Dashboard 的 Recent Analysis；Dashboard 页不直接调用 `AnalysisService`。
 
+## UI 层（Phase 12）
+
+Phase 12 把既有能力组织成人物调查工作台（Person Investigation Console），仍然**无 schema 变化**：
+
+- **People 三区工作台**：人物索引 ｜ 人物档案 + Ego Network ｜ Inspector（关系管理／Activity／
+  Evidence／Memory／Analysis 五 Tab）。Inspector 为嵌套 `QSplitter` 布局：宽屏右侧栏、窄屏底部抽屉
+  （显式切换 + 宽度自动切换）。
+- **绘图层唯一实现**：[graph_canvas.py](<../app/ui/graph_canvas.py>) 承载 `PersonNode`／
+  `RelationshipEdge`／`GraphView`／几何与状态画笔；全局 Graph 页与 Ego Network 共用（显式点击
+  handler 接缝）。Ego Network 只读 `RelationshipService.list_by_person`（一层直接关系），不推断、
+  不落库、不持久化坐标。
+- **Inspector 联动**：Activity 行选中事件 → 内联事件详情 → 该事件证据 → 所属 Event／Analysis Sources
+  跳转，全部经 `navigate_requested → MainWindow.open_target`；无历史导航栈（ContextBar 仍只读）。
+- **Evidence 阅读器**：[evidence_dialog.py](<../app/ui/evidence_dialog.py>) 的 `EvidenceReader`
+  同时服务详情对话框与 Inspector：FACT 原文只读、USER 注释可编辑，所属 Event 常显可跳。
+- **Workspace Timeline**：Events 页第二 Tab（共享 `TimelinePanel` 工作区模式），是完整 Workspace
+  时间线的唯一可见入口；Dashboard 只保留统计与最近列表。
+- **全局搜索唯一入口**：TopBar（Ctrl+F）；页面内不再有隐藏 SearchPanel 副本，People 页可见搜索框
+  只是本地列表过滤器。
+- **状态优先级**：TopBar 状态是分层来源（`lock` 级的「分析运行中」不被 `page` 级导航文案覆盖，
+  解锁后恢复）；Analysis 锁定锚定 `QThread.finished`，取消与关闭对话框都不提前解锁。
+- **归档人物只读契约**：`PersonService.detail(include_deleted=True)` 只读身份与存留别称；
+  `soft_delete` 在归档时解绑的图片引用不恢复、不伪造（UI 如实标注），所有写入口拒绝归档对象。
+
 ## 未实现与后续决策
 
 - Sync／ChangeLog／Revision／MemoryRevision；这些表与功能不存在。

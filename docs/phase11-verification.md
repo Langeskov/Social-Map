@@ -174,7 +174,7 @@ Dashboard 页只依赖 DashboardService，snapshot 的查询数保持不变。
 | 1 只读面包屑 | `ContextBar.set_crumbs`；无 back/forward 属性（有测试断言） |
 | 2 方案 A | `run_operation(on_conflict=…)` + `ConflictBanner`；文档记录 guard 范围 |
 | 3 Memory 位置 | Person Detail Tab 顺序 Evidence → Memory → Analysis |
-| 4 删除冗余 UI | Dashboard 内嵌搜索 / Workspace Timeline、People 的 Event-only Timeline 均不再显示（对象保留以维持历史契约） |
+| 4 删除冗余 UI | Dashboard 内嵌搜索 / Workspace Timeline、People 的 Event-only Timeline 均不再显示；`EventTimeline` **已删除**（对象与文件都不存在，断言按 10.4 迁移），Dashboard/People 的隐藏副本当时保留对象维持历史契约，**Phase 12.3 已将其彻底移除**（见 [Phase12验收记录](<phase12-verification.md>)） |
 | 5 最近 Analysis | `DashboardService.recent_analysis`，UI 不直接调用 AnalysisService |
 | 6 运行中锁定 | `AnalysisPage.workspace_lock_changed` → TopBar 选择器禁用；结束后解锁；可取消 |
 | 7 Workspace 管理 | Settings 分区内 新建 / 重命名 / 归档；当前不可归档、至少保留一个、名称遵循 Service 规则 |

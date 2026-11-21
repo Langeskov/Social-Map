@@ -45,13 +45,32 @@ class PersonService:
         with transaction(self._sessions) as session:
             return person_required(self._repositories(session), workspace_id, person_id)
 
-    def detail(self, workspace_id: UUID, person_id: UUID) -> PersonDetail:
+    def detail(self, workspace_id: UUID, person_id: UUID, *, include_deleted: bool = False) -> PersonDetail:
+        """Read one person's identity, aliases and image references.
+
+        Read-only archive contract (Phase 12.3): with ``include_deleted=True`` an
+        archived person's identity and surviving aliases are readable and nothing
+        else changes. ``soft_delete`` unbinds every ``PersonMedia`` row at archive
+        time, so ``images`` stays empty for an archived person - Media files may
+        still exist, but they are no longer part of this Person's reference set
+        and are never re-bound or invented here. No write path accepts an
+        archived person.
+        """
         with transaction(self._sessions) as session:
             repositories = self._repositories(session)
-            person = person_required(repositories, workspace_id, person_id)
+            if include_deleted:
+                workspace_required(repositories, workspace_id)
+                person = repositories.people.get(workspace_id, person_id, include_deleted=True)
+                if person is None:
+                    raise NotFoundError("人物不属于当前 Workspace。")
+            else:
+                person = person_required(repositories, workspace_id, person_id)
             images = tuple(PersonImage(link, repositories.media.get(workspace_id, link.media_id))
                            for link in repositories.person_media.list(workspace_id, person_id))
-            return PersonDetail(person, tuple(repositories.aliases.list(workspace_id, person_id)), images)
+            return PersonDetail(person,
+                                tuple(repositories.aliases.list(workspace_id, person_id,
+                                                                include_deleted=include_deleted)),
+                                images)
 
     def create(self, workspace_id: UUID, display_name: str, *, avatar_path: Path | None = None, **fields) -> Person:
         if set(fields) - (self.EDITABLE - {"display_name"}):

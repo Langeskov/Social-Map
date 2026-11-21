@@ -107,20 +107,25 @@ class SQLPersonAliasRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def _query(self, workspace_id: UUID):
-        return (select(PersonAliasModel)
+    def _query(self, workspace_id: UUID, include_deleted: bool = False):
+        query = (select(PersonAliasModel)
                 .join(PersonModel, (PersonModel.id == PersonAliasModel.person_id)
                       & (PersonModel.workspace_id == PersonAliasModel.workspace_id))
                 .join(WorkspaceModel, WorkspaceModel.id == PersonModel.workspace_id)
                 .where(PersonAliasModel.workspace_id == workspace_id,
-                       PersonModel.deleted_at.is_(None), WorkspaceModel.deleted_at.is_(None)))
+                       WorkspaceModel.deleted_at.is_(None)))
+        if not include_deleted:
+            query = query.where(PersonModel.deleted_at.is_(None))
+        return query
 
     def get(self, workspace_id: UUID, id: UUID) -> PersonAlias | None:
         return _domain(PersonAlias, self.session.scalar(
             self._query(workspace_id).where(PersonAliasModel.id == id)))
 
-    def list(self, workspace_id: UUID, person_id: UUID) -> list[PersonAlias]:
-        query = self._query(workspace_id).where(PersonAliasModel.person_id == person_id)
+    def list(self, workspace_id: UUID, person_id: UUID, *, include_deleted: bool = False) -> list[PersonAlias]:
+        """Aliases of one person; ``include_deleted`` is the read-only archive
+        contract: an archived person's surviving aliases stay readable."""
+        query = self._query(workspace_id, include_deleted).where(PersonAliasModel.person_id == person_id)
         return [_domain(PersonAlias, model) for model in self.session.scalars(
             query.order_by(PersonAliasModel.alias, PersonAliasModel.id))]
 

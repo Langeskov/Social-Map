@@ -255,6 +255,33 @@ def test_ego_edge_click_opens_the_real_relationship_detail(workspace_ui):
     assert c.errors == []
 
 
+def test_archived_person_detail_reads_aliases_and_honours_the_contract(workspace_ui):
+    """Phase 12.3 archive contract: identity + aliases readable, nothing written."""
+    c = workspace_ui
+    page = c.page
+    c.services.people.add_alias(c.ws, c.a.id, "甲的别名")
+    c.services.people.soft_delete(c.ws, c.a.id)
+    page.include_archived.setChecked(True)
+    page.refresh_people(c.a.id)
+    # Identity and surviving aliases are readable through the Service contract.
+    assert page.identity_name.text() == "甲"
+    assert page.status_pill.status == "ARCHIVED"
+    assert [page.alias_list.item(i).text() for i in range(page.alias_list.count())] == ["甲的别名 · OTHER"]
+    # The image references unbound at archive time are reported honestly.
+    image_texts = [page.image_list.item(i).text() for i in range(page.image_list.count())]
+    assert any("图片引用已解绑" in text for text in image_texts)
+    # No write path is offered for an archived person.
+    for button in (page.edit_button, page.archive_button, page.add_alias_button,
+                   page.remove_alias_button, page.avatar_button, page.gallery_button,
+                   page.remove_image_button, page.promote_button, page.analyze_button):
+        assert button.isEnabled() is False
+    # Known read gap beyond the 7.3 contract: the relationship/timeline *panels*
+    # still refuse archived subjects with the Service message (relationship and
+    # timeline Service guards), while identity/aliases/ego show honest states.
+    assert c.errors != []
+    assert all("归档" in message for message in c.errors), c.errors
+
+
 def test_ego_of_an_archived_person_is_degraded_not_invented(workspace_ui):
     c = workspace_ui
     page = c.page

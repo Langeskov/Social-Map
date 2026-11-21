@@ -12,3 +12,5 @@ data/
 pytest-of-*/
 .test-runs/
 permission-recovery/
+AGENTS.md
+项目.txt

@@ -117,3 +117,16 @@ System Prompt 明确要求：不修改事实、区分 Fact／Observation／Infer
 ## 边界
 
 不实现 Memory、Vision、OCR、聊天导入、自动事件提取、向量数据库、RAG、Sync、ChangeLog、Revision；不建立 Memory／Vector／Conversation 表。**所有模型调用都必须由用户明确点击触发**：打开页面、加载 Dashboard、修改事件或创建关系都不会自动调用模型。
+
+## 离线评估（Phase 13）
+
+分析质量评估是**独立的离线评估层**（`app/evaluation/`），与事实层、分析层严格分离：
+
+- 版本化合成评估数据集（`tests/evaluation/dataset/`，Scenario A–J）通过真实
+  ContextBuilder / PromptBuilder 构建**模型输入**并做确定性验证：来源集合绑定、
+  参考答案防泄漏、跨 Workspace 隔离、Token 预算边界、预期上下文断言。
+- 评估不写事实、不写 Memory、不访问网络、不调用模型；普通 pytest 完全离线。
+- 结果按指标分列（PASS / FAIL / N/A + 原因 + 证据），无单一总分；模型输出相关
+  指标在解析器（13.1）与来源校验（13.2）落地前一律 N/A。
+- Token 估算为保守近似（CJK 1 字符/token）；超预算时明确拒绝并提示缩小范围，
+  不静默截断。详见 [Phase 13 评估框架](<phase13-evaluation.md>)。

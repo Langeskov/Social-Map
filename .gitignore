@@ -12,3 +12,4 @@ data/
 pytest-of-*/
 .test-runs/
 permission-recovery/
+evaluation-runs/

@@ -104,7 +104,7 @@ def test_switching_workspace_drops_the_person_detail(shell):
     switch(shell, shell.b)
     assert window.people_page.current_detail is None
     assert window.people_page.people_list.count() == 0
-    assert window.people_page.analysis_locked() is False if hasattr(window.people_page, "analysis_locked") else True
+    assert window.analysis_page.analysis_locked() is False
     assert shell.errors == []
 
 

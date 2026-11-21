@@ -15,7 +15,7 @@ AnalysisSource membership means "this entity was explicitly provided or
 represented in the context". It does **not** mean its full profile was provided,
 and it does **not** mean any model conclusion about it is grounded.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from uuid import UUID
 
 MANIFEST_VERSION = "1"

@@ -202,7 +202,8 @@ def _refusal_result(scenario, scenario_path, metrics, exc):
         else:
             metrics.append(_fail("CONTEXT_EXPECTATIONS",
                                  "未预期的上下文超限拒绝。", (scenario_path,)))
-        metrics.extend(_not_applicable_context_checks("上下文未构建（超限拒绝），无快照可核对。"))
+        metrics.extend(_not_applicable_context_checks("上下文未构建（超限拒绝），无快照可核对。",
+                                                       include_expectations=False))
     else:
         context = ContextOutcome(built=False, error=message)
         metrics.append(MetricResult(
@@ -211,7 +212,8 @@ def _refusal_result(scenario, scenario_path, metrics, exc):
         reason = ("预期超限拒绝，实际是其他错误。" if expected_limit
                   else f"上下文构建失败：{message}")
         metrics.append(_fail("CONTEXT_EXPECTATIONS", reason, (scenario_path,)))
-        metrics.extend(_not_applicable_context_checks("上下文构建失败，无快照可核对。"))
+        metrics.extend(_not_applicable_context_checks("上下文构建失败，无快照可核对。",
+                                                       include_expectations=False))
     metrics.extend(_model_output_na(scenario))
     outcome = OUTCOME_REFUSED_LIMIT if is_limit else OUTCOME_ERROR
     return ScenarioEvaluationResult(
@@ -402,10 +404,13 @@ def _fail(metric_id: str, reason: str, evidence=(), details=None) -> MetricResul
                         dict(details or {}))
 
 
-def _not_applicable_context_checks(reason: str) -> list[MetricResult]:
+def _not_applicable_context_checks(reason: str, *, include_expectations=True) -> list[MetricResult]:
+    metric_ids = ["CONTEXT_BINDING", "PROMPT_LEAKAGE", "CONTEXT_ISOLATION",
+                  "EXPOSURE_MANIFEST"]
+    if include_expectations:
+        metric_ids.append("CONTEXT_EXPECTATIONS")
     return [MetricResult(metric_id, NOT_APPLICABLE, DETERMINISTIC, reason)
-            for metric_id in ("CONTEXT_BINDING", "PROMPT_LEAKAGE", "CONTEXT_ISOLATION",
-                              "CONTEXT_EXPECTATIONS", "EXPOSURE_MANIFEST")]
+            for metric_id in metric_ids]
 
 
 def _exposure_manifest(scenario, snapshot, scenario_path) -> MetricResult:

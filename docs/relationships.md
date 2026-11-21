@@ -35,6 +35,25 @@ ENDED是状态History，绝不设置deleted_at。删除错误记录只改deleted
 
 Person归档保留关系和历史，不自动写ENDED；默认关系查询隐藏已归档端点，审计读取可看原记录。恢复或新增状态时Service重新检查两个Person和Workspace均有效。旧PersonMedia解绑、Media保留与补偿语义不变。
 
+## 归档状态矩阵（Phase 12.5）
+
+归档人物、归档端点、已删除关系与 History 记录的组合行为（组合测试：
+`tests/services/test_relationship_service.py::test_archive_state_matrix_combinations`、
+`tests/services/test_timeline_service.py::test_archived_person_hides_their_timeline_but_never_recorded_history`、
+`tests/ui/test_phase12_workspace.py`）：
+
+| 记录组合 | 读取 | 写入 |
+|---|---|---|
+| 活人物 + 双活端点 | `list_by_person` 默认可见；Person Timeline 默认可见 | 允许：创建关系、追加状态、删除错误记录、恢复（保持既有规则） |
+| 关系含**归档端点** | 默认隐藏；`include_deleted=True` 可见并标记「端点已归档」 | 追加状态／恢复拒绝（端点存活检查）；**审计删除（soft delete 关系）仍可用**（仅置 deleted_at） |
+| **已删除关系** | 默认隐藏；`include_deleted=True` 可见并标记「已删除」 | 恢复仅当两端活跃；History 保留 |
+| **归档人物（主体）** | 默认读取维持历史拒绝；`include_deleted=True` 只读历史视图：detail（身份+存留别称）、`list_by_person`、Person Timeline、Ego Network 全部可读 | 人物字段／别称／媒体引用全部拒绝；关系追加状态／恢复拒绝；**审计删除仍可用**；Analysis 不发起；UI 对新增/状态/恢复/分析按钮锁止 |
+| **History 记录** | `history(..., include_deleted=True)` 始终只读可查（含已删除关系的历史） | 只可追加（限活跃关系）；不修改、不删除 |
+
+要点：归档是人物生命周期事实——不删除关系、不写 ENDED、不清 History；解绑的 PersonMedia
+引用不恢复、不伪造（见 [媒体文档](<media.md>)）；Ego Network 与关系面板对归档主体显示
+**只读历史视图**（时间线的「显示已删除记录」开关继续过滤行），不再弹出 Service 拒绝提示。
+
 ## 单一状态真相
 
 History 原 Phase 4 字段：id、workspace_id、relationship_id、state、effective_at、note、created_at。Phase 5 增加可空 event_id 复合 Event FK；没有 current_state/deleted_at。Domain和DB允许可扩展非空状态字符串；关系 Service/UI 继续只写 ACTIVE、PAUSED、ENDED。

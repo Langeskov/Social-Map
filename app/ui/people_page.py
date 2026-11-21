@@ -684,8 +684,10 @@ class PeoplePage(ContextPage, QWidget):
                                self.avatar_button, self.gallery_button, self.remove_image_button,
                                self.open_image_button, self.promote_button, self.analyze_button):
                     button.setEnabled(False)
-            self.relationship_panel.set_person(self.workspace_id, person.id)
-            self.full_timeline.set_person(self.workspace_id, person.id)
+            self.relationship_panel.set_person(self.workspace_id, person.id,
+                                               subject_archived=archived)
+            self.full_timeline.set_person(self.workspace_id, person.id,
+                                          subject_archived=archived)
             self.memory_panel.set_person(self.workspace_id, person.id)
             self.rebuild_ego()
             self.reload_person_evidence(person.id)
@@ -706,9 +708,9 @@ class PeoplePage(ContextPage, QWidget):
     def ego_relationships(self):
         """One-hop Relationship facts of the current person (toggles match GraphPage).
 
-        Returns ``None`` when the read contract cannot serve an archived person:
-        ``RelationshipService.list_by_person`` only reads live people, and Phase 12
-        does not change that. Nothing is invented in its place.
+        An archived person is a read-only archive view (Phase 12.5): the
+        recorded history is readable through ``include_deleted=True`` and the
+        deleted toggle filters which rows are drawn. Nothing is ever written.
         """
         person = getattr(self.current_detail, "person", None)
         service = getattr(self.services, "relationships", None)
@@ -716,12 +718,12 @@ class PeoplePage(ContextPage, QWidget):
             return []
         if service is None:
             return None
-        if person.deleted_at is not None:
-            return None
         show_archived = self.ego_show_archived.isChecked()
         show_deleted = self.ego_show_deleted.isChecked()
+        archived_subject = person.deleted_at is not None
         views = service.list_by_person(self.workspace_id, person.id,
-                                       include_deleted=show_deleted or show_archived)
+                                       include_deleted=(show_deleted or show_archived
+                                                        or archived_subject))
         return [view for view in views if show_deleted or view.relationship.deleted_at is None]
 
     def ego_avatar_for(self, person):
@@ -754,10 +756,7 @@ class PeoplePage(ContextPage, QWidget):
         if getattr(self.services, "relationships", None) is None:
             self.ego_status.setText("关系服务尚未装配：局部关系网络不可用。")
             return []
-        if person.deleted_at is not None:
-            self.ego_status.setText(
-                "已归档人物：关系读取受限，局部关系网络不可用；身份与历史仍可查看。")
-            return []
+        archived_subject = person.deleted_at is not None
 
         def build():
             views = self.ego_relationships()
@@ -806,8 +805,9 @@ class PeoplePage(ContextPage, QWidget):
             else:
                 widened = "（含已归档人物 / 已删除关系）" if (self.ego_show_archived.isChecked()
                                                               or self.ego_show_deleted.isChecked()) else ""
+                scope = "归档人物只读历史视图 · " if archived_subject else ""
                 self.ego_status.setText(
-                    f"局部关系网络 · 一层 · {len(neighbors)} 人 · {len(edges)} 条关系{widened}"
+                    f"局部关系网络 · {scope}一层 · {len(neighbors)} 人 · {len(edges)} 条关系{widened}"
                     f" · 数据来自人物与关系服务，未新增任何表")
             return edges
         return self.run_operation(build)

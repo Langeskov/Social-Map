@@ -158,6 +158,7 @@ class RelationshipPanel(QWidget):
         #: Non-modal detail windows; a caller (the page) may own the pool so a
         #: Workspace reset can close them together with its own dialogs.
         self._dialogs = dialog_pool if dialog_pool is not None else []
+        self.subject_archived = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 12, 0, 0)
         layout.addWidget(QLabel("Relationships · 关系（身份不可编辑）"))
@@ -207,8 +208,11 @@ class RelationshipPanel(QWidget):
         """
         return _run_operation(self, callback, context="Relationship UI", title="关系操作未完成")
 
-    def set_person(self, workspace_id, person_id):
+    def set_person(self, workspace_id, person_id, *, subject_archived=False):
         self.workspace_id, self.person_id = workspace_id, person_id
+        #: Phase 12.5: an archived subject's recorded relationships are shown as
+        #: a read-only history (no refusal dialog, no write buttons).
+        self.subject_archived = bool(subject_archived)
         self.table.clearContents()
         self.table.setRowCount(0)
         self.refresh()
@@ -221,13 +225,21 @@ class RelationshipPanel(QWidget):
     def update_buttons(self):
         available = self.service is not None and self.person_id is not None
         view = self.selected()
-        self.add_button.setEnabled(available)
+        # Phase 12.5 matrix: an archived subject's panel is a read-only history
+        # for everything except audit deletion - create, state change, recovery
+        # and analysis never go through an archived entry, while deleting a
+        # wrong record stays available (the Service keeps audit deletion open
+        # for archived endpoints; it only refuses recovery and state writes).
+        writable = available and not self.subject_archived
+        self.add_button.setEnabled(writable)
         self.refresh_button.setEnabled(available)
-        self.state_button.setEnabled(bool(view and view.relationship.deleted_at is None and view.endpoints_active))
+        self.state_button.setEnabled(bool(writable and view and view.relationship.deleted_at is None
+                                          and view.endpoints_active))
         self.history_button.setEnabled(view is not None)
         self.delete_button.setEnabled(bool(view and view.relationship.deleted_at is None))
-        self.restore_button.setEnabled(bool(view and view.relationship.deleted_at is not None and view.endpoints_active))
-        self.analyze_button.setEnabled(view is not None)
+        self.restore_button.setEnabled(bool(writable and view and view.relationship.deleted_at is not None
+                                            and view.endpoints_active))
+        self.analyze_button.setEnabled(bool(view is not None and not self.subject_archived))
 
     def analyze_relationship(self):
         """Phase 8 entry: options dialog only; the run itself starts on confirm."""
@@ -246,7 +258,13 @@ class RelationshipPanel(QWidget):
         previous = self.selected()
         selected_id = previous.relationship.id if previous else None
         def load():
-            views = self.service.list_by_person(self.workspace_id, self.person_id, include_deleted=self.include_deleted.isChecked())
+            include_deleted = self.include_deleted.isChecked()
+            views = self.service.list_by_person(self.workspace_id, self.person_id,
+                                                include_deleted=include_deleted or self.subject_archived)
+            if self.subject_archived and not include_deleted:
+                # The read-only archive view widens the service read; the
+                # deleted toggle still filters which recorded rows are listed.
+                views = [view for view in views if view.relationship.deleted_at is None]
             self.table.setRowCount(0)
             target = 0
             for view in views:

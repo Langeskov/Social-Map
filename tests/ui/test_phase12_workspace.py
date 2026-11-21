@@ -275,28 +275,33 @@ def test_archived_person_detail_reads_aliases_and_honours_the_contract(workspace
                    page.remove_alias_button, page.avatar_button, page.gallery_button,
                    page.remove_image_button, page.promote_button, page.analyze_button):
         assert button.isEnabled() is False
-    # Known read gap beyond the 7.3 contract: the relationship/timeline *panels*
-    # still refuse archived subjects with the Service message (relationship and
-    # timeline Service guards), while identity/aliases/ego show honest states.
-    assert c.errors != []
-    assert all("归档" in message for message in c.errors), c.errors
+    # Phase 12.5: the recorded relationship and timeline history show without
+    # any refusal dialog - a read-only history view. Create/state/restore are
+    # refused; audit deletion of a wrong record stays available (Service rule).
+    panel = page.relationship_panel
+    assert panel.table.rowCount() == 2
+    assert panel.add_button.isEnabled() is False
+    assert panel.state_button.isEnabled() is False
+    assert panel.delete_button.isEnabled() is True
+    timeline = page.full_timeline
+    assert timeline.table.rowCount() == 2
+    assert c.errors == []
 
 
-def test_ego_of_an_archived_person_is_degraded_not_invented(workspace_ui):
+def test_ego_of_an_archived_person_shows_history_read_only(workspace_ui):
+    """Phase 12.5: an archived person's recorded one-hop history is readable."""
     c = workspace_ui
     page = c.page
     c.services.people.soft_delete(c.ws, c.a.id)
     page.include_archived.setChecked(True)
     page.refresh_people(c.a.id)
     assert page.status_pill.status == "ARCHIVED"
-    assert page.ego_nodes == [] and page.ego_edges == []
-    assert "已归档" in page.ego_status.text()
-    assert "不可用" in page.ego_status.text()
-    # Known Service gap (read contract approved for Phase 12.3): the relationship
-    # and timeline *panels* still refuse archived people with the Service message;
-    # the workspace itself invents nothing and shows the honest degraded state.
-    assert c.errors != []
-    assert all("归档" in message for message in c.errors), c.errors
+    assert {node.display_name for node in page.ego_nodes} == {"甲", "乙", "丙"}
+    assert ego_edge_ids(page) == {c.friend.id, c.colleague.id}
+    center = page.ego_node_for_person(c.a.id)
+    assert center is not None and center.deleted is True
+    assert "归档人物只读历史视图" in page.ego_status.text()
+    assert c.errors == []
 
 
 def test_ego_persists_nothing(workspace_ui):

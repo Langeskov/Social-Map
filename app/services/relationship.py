@@ -122,11 +122,22 @@ class RelationshipService:
             return self._view(repositories, self._get(repositories, workspace_id, id, include_deleted=include_deleted), instant)
 
     def list_by_person(self, workspace_id: UUID, person_id: UUID, *, include_deleted=False, as_of: datetime | None = None) -> list[RelationshipView]:
+        """Relationships where one person is an endpoint.
+
+        Read-only archive contract (Phase 12.5): with ``include_deleted=True``
+        an archived person's recorded relationships are readable - the history
+        stays visible, nothing is written and every write path still refuses an
+        archived endpoint. ``include_deleted=False`` keeps the historic
+        behaviour exactly (an archived subject raises).
+        """
         instant = self._now() if as_of is None else normalize_datetime(as_of, "as_of")
         with transaction(self._sessions) as session:
             repositories = self._repositories(session)
             workspace_required(repositories, workspace_id)
-            if repositories.people.get(workspace_id, person_id) is None:
+            person = repositories.people.get(workspace_id, person_id, include_deleted=True)
+            if person is None:
+                raise NotFoundError("人物不属于当前 Workspace。")
+            if person.deleted_at is not None and not include_deleted:
                 raise NotFoundError("当前人物已归档或不属于该 Workspace。")
             return [self._view(repositories, entity, instant) for entity in
                     repositories.relationships.list_by_person(workspace_id, person_id, include_deleted=include_deleted)]

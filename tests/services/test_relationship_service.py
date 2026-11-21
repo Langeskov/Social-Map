@@ -489,13 +489,17 @@ def test_person_archive_unlinks_media_but_keeps_file_relationship_and_history(en
     assert env.service.list_by_person(env.ws, env.b.id) == []
     with pytest.raises(NotFoundError):
         env.service.get(env.ws, relation.id)
+    # The default read keeps the historic refusal for an archived subject.
     with pytest.raises(NotFoundError):
-        env.service.list_by_person(env.ws, env.a.id, include_deleted=True)
+        env.service.list_by_person(env.ws, env.a.id)
     audited = env.service.current(env.ws, relation.id, include_deleted=True)
     assert not audited.endpoints_active and audited.current_state == "ACTIVE"
     assert env.service.history(env.ws, relation.id, include_deleted=True) == history
     assert env.service.list_by_workspace(env.ws, include_deleted=True) == [audited]
     assert env.service.list_by_person(env.ws, env.b.id, include_deleted=True) == [audited]
+    # Phase 12.5 read-only archive view: the archived subject's recorded
+    # relationship and history stay readable; nothing is written.
+    assert env.service.list_by_person(env.ws, env.a.id, include_deleted=True) == [audited]
     with pytest.raises(NotFoundError):
         env.service.add_history(env.ws, relation.id, "ENDED")
     # Audit deletion remains available, but recovery cannot bypass the endpoint archive.
@@ -503,6 +507,59 @@ def test_person_archive_unlinks_media_but_keeps_file_relationship_and_history(en
     with pytest.raises(WorkspaceMismatchError):
         env.service.restore(env.ws, relation.id)
     assert persisted(env, relation.id)[1] == history
+
+
+def test_archive_state_matrix_combinations(env):
+    """Phase 12.5 matrix in one place: archived person, archived endpoint,
+    deleted relationship and history rows - which reads work and which writes
+    are refused. Audit deletion stays available (it only sets deleted_at);
+    recovery and state writes never bypass an archived endpoint.
+    """
+    other = env.people.create(env.ws, "丙")
+    r_ab = env.create("Friend")                                    # live + live
+    r_ac = env.service.create(env.ws, env.a.id, other.id, "Colleague", directionality="DIRECTED")
+    # live subject + live endpoints: default read and write both work.
+    assert {v.relationship.id for v in env.service.list_by_person(env.ws, env.a.id)} == {r_ab.id, r_ac.id}
+    env.service.add_history(env.ws, r_ab.id, "PAUSED")
+    # Order is (created_at, uuid): the frozen clock ties the two rows, so the
+    # matrix asserts membership, not accidental uuid order.
+    assert {entry.state for entry in env.service.history(env.ws, r_ab.id)} == {"ACTIVE", "PAUSED"}
+    # archived OTHER endpoint: hidden by default, readable widened; state
+    # writes refuse; history stays readable.
+    env.people.soft_delete(env.ws, other.id)
+    assert [v.relationship.id for v in env.service.list_by_person(env.ws, env.a.id)] == [r_ab.id]
+    widened = env.service.list_by_person(env.ws, env.a.id, include_deleted=True)
+    assert {v.relationship.id for v in widened} == {r_ab.id, r_ac.id}
+    assert next(v for v in widened if v.relationship.id == r_ac.id).endpoints_active is False
+    with pytest.raises(NotFoundError):
+        env.service.add_history(env.ws, r_ac.id, "ENDED")
+    assert len(env.service.history(env.ws, r_ac.id, include_deleted=True)) == 1
+    # deleted relationship: hidden by default, listed with its deleted_at in
+    # the widened read; every history row is kept.
+    env.service.soft_delete(env.ws, r_ab.id)
+    assert env.service.list_by_person(env.ws, env.a.id) == []
+    widened = {v.relationship.id: v for v in env.service.list_by_person(env.ws, env.a.id, include_deleted=True)}
+    assert widened[r_ab.id].relationship.deleted_at is not None
+    assert {entry.state for entry in env.service.history(env.ws, r_ab.id, include_deleted=True)} == {
+        "ACTIVE", "PAUSED"}
+    # archived SUBJECT: the default read keeps the historic refusal; the
+    # read-only archive view shows the recorded rows.
+    env.people.soft_delete(env.ws, env.a.id)
+    with pytest.raises(NotFoundError):
+        env.service.list_by_person(env.ws, env.a.id)
+    archived_view = env.service.list_by_person(env.ws, env.a.id, include_deleted=True)
+    assert {v.relationship.id for v in archived_view} == {r_ab.id, r_ac.id}
+    # writes through the archived entry: state change refuses, audit deletion
+    # is available, recovery cannot bypass the endpoint archive.
+    with pytest.raises(NotFoundError):
+        env.service.add_history(env.ws, r_ac.id, "ENDED")
+    env.service.soft_delete(env.ws, r_ac.id)
+    assert persisted(env, r_ac.id)[0].deleted_at is not None
+    with pytest.raises(WorkspaceMismatchError):
+        env.service.restore(env.ws, r_ab.id)
+    # History rows survive every combination above.
+    assert {entry.state for entry in env.service.history(env.ws, r_ab.id, include_deleted=True)} == {
+        "ACTIVE", "PAUSED"}
 
 
 def test_failure_and_conflict_logs_never_include_private_type_or_note(env, caplog):

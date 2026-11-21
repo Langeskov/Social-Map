@@ -176,6 +176,7 @@ class TimelinePanel(QWidget):
         self.service = getattr(services, "timeline", None)
         self.workspace_id = self.person_id = None
         self.mode = MODE_WORKSPACE
+        self.subject_archived = False
         self._rows = []
         self._people = {}
         #: Non-modal detail windows; a caller (the page) may own the pool so a
@@ -249,8 +250,11 @@ class TimelinePanel(QWidget):
     def run_operation(self, callback):
         return run_operation(self, callback)
 
-    def set_person(self, workspace_id, person_id):
+    def set_person(self, workspace_id, person_id, *, subject_archived=False):
         self.workspace_id, self.person_id = workspace_id, person_id
+        #: Phase 12.5: an archived subject's recorded history is readable; the
+        #: deleted-records toggle then filters rows client-side.
+        self.subject_archived = bool(subject_archived)
         self.table.setRowCount(0)
         self._rows = []
         self.refresh()
@@ -319,6 +323,12 @@ class TimelinePanel(QWidget):
             return list(self.service.workspace_timeline(self.workspace_id, include_deleted=include_deleted))
         if self.person_id is None:
             return []
+        if self.subject_archived:
+            # Read-only archive view (Phase 12.5): the archived person's
+            # recorded history is readable; the deleted toggle filters rows
+            # client-side instead of refusing the read.
+            return list(self.service.person_timeline(self.workspace_id, self.person_id,
+                                                     include_deleted=True))
         return list(self.service.person_timeline(self.workspace_id, self.person_id,
                                                  include_deleted=include_deleted))
 
@@ -352,6 +362,12 @@ class TimelinePanel(QWidget):
             # and one Relationship listing per refresh, never one query per row.
             event_details = self._batch_event_details(items)
             relationship_views = self._batch_relationship_views(items)
+            if self.subject_archived and not self.include_deleted.isChecked():
+                # The archive view carries deleted rows too; the toggle keeps
+                # filtering them exactly like the service-level filter does for
+                # a live subject.
+                items = [item for item in items
+                         if not self._item_deleted(item, event_details, relationship_views)]
             self.table.blockSignals(True)
             try:
                 self.table.setRowCount(0)
@@ -454,15 +470,19 @@ class TimelinePanel(QWidget):
         return "事件" + linked
 
     @staticmethod
-    def _title_cell(item, event_detail=None, views=None):
-        """The title cell carries the record status (Phase 12.2): a deleted
-        record is marked the same way the Evidence list marks one."""
+    def _item_deleted(item, event_detail=None, views=None):
+        """Whether the *record* behind a row is soft deleted (batch-sourced)."""
         if item.kind == "RELATIONSHIP_CHANGE":
             view = views.get(item.relationship_id) if (views and item.relationship_id) else None
-            deleted = bool(view is not None and view.relationship.deleted_at is not None)
-        else:
-            deleted = bool(event_detail is not None and event_detail.event.deleted_at is not None)
-        return ("已删除 · " + item.title) if deleted else item.title
+            return bool(view is not None and view.relationship.deleted_at is not None)
+        return bool(event_detail is not None and event_detail.event.deleted_at is not None)
+
+    def _title_cell(self, item, event_detail=None, views=None):
+        """The title cell carries the record status (Phase 12.2): a deleted
+        record is marked the same way the Evidence list marks one."""
+        if self._item_deleted(item, event_detail, views):
+            return "已删除 · " + item.title
+        return item.title
 
     # ---------------------------------------------------------------- navigation
 

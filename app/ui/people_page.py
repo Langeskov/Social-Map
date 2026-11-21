@@ -21,7 +21,6 @@ Global search lives only in the TopBar (Ctrl+F); this page's visible search box
 is a *local list filter*, not a search engine entry.
 """
 import logging
-from dataclasses import dataclass
 from uuid import UUID
 from pathlib import Path
 from PySide6.QtCore import QPointF, Qt, QSize, QTimer, Signal
@@ -63,23 +62,6 @@ def plain_label(text=""):
     label.setWordWrap(True)
     label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     return label
-
-
-@dataclass(frozen=True)
-class ArchivedPersonSnapshot:
-    """Identity of an archived person, read from the list projection.
-
-    ``PersonService.detail`` only reads live people, so an archived person is shown
-    from the management list instead: identity plus its history stay visible, while
-    the alias / image references that only the detail query returns are reported as
-    unavailable rather than invented. This is a UI-side degradation, not a schema or
-    Domain change.
-    """
-
-    person: object
-    aliases: tuple = ()
-    images: tuple = ()
-    degraded: bool = True
 
 class PeoplePage(ContextPage, QWidget):
     navigate_requested = Signal(str, object)
@@ -631,18 +613,17 @@ class PeoplePage(ContextPage, QWidget):
         self.fields_form.setRowVisible(row, bool(visible))
 
     def load_person_detail(self, person_id):
-        """The detail snapshot, or an honest archived view when the person is archived.
+        """The detail snapshot; archived people are readable read-only.
 
-        ``PersonService.detail`` reads live people only; an archived person is shown
-        from the management list so identity and history stay readable.
+        ``PersonService.detail(include_deleted=True)`` is the Phase 12.3 archive
+        contract: identity and surviving aliases come from the Service, and the
+        image references that ``soft_delete`` unbound at archive time are simply
+        absent - never invented.
         """
         try:
             return self.services.people.detail(self.workspace_id, person_id)
         except NotFoundError:
-            for person in self.services.people.list(self.workspace_id, include_deleted=True):
-                if person.id == person_id:
-                    return ArchivedPersonSnapshot(person=person)
-            raise
+            return self.services.people.detail(self.workspace_id, person_id, include_deleted=True)
 
     def select_person(self, item, previous=None):
         self.clear_detail_view()
@@ -671,8 +652,6 @@ class PeoplePage(ContextPage, QWidget):
                 label.setText(text or "—")
                 self._show_field(key, bool(text))
             self.notes.setPlainText(person.notes or "")
-            if getattr(snapshot, "degraded", False):
-                self.alias_list.addItem("已归档人物：别称引用需要读取归档详情，当前不可用。")
             for alias in snapshot.aliases:
                 entry = QListWidgetItem(f"{alias.alias} · {alias.alias_type}")
                 entry.setData(ROLE, alias.id)
@@ -692,6 +671,19 @@ class PeoplePage(ContextPage, QWidget):
                     logger.warning("Media thumbnail unavailable: type=%s", type(exc).__name__)
                     entry.setText(entry.text() + " · 文件不可读")
                 self.image_list.addItem(entry)
+            if archived and not snapshot.images:
+                # Honest archive display: soft_delete unbound every image
+                # reference; Media files may still exist but no longer belong
+                # to this Person's reference set (Phase 12.3 contract).
+                note = QListWidgetItem("归档前的图片引用已解绑，不再属于该人物的引用集合（Media 文件可能仍存在）。")
+                note.setFlags(Qt.ItemFlag.NoItemFlags)
+                self.image_list.addItem(note)
+            if archived:
+                # No write path accepts an archived person (read-only contract).
+                for button in (self.edit_button, self.add_alias_button, self.remove_alias_button,
+                               self.avatar_button, self.gallery_button, self.remove_image_button,
+                               self.open_image_button, self.promote_button, self.analyze_button):
+                    button.setEnabled(False)
             self.relationship_panel.set_person(self.workspace_id, person.id)
             self.full_timeline.set_person(self.workspace_id, person.id)
             self.memory_panel.set_person(self.workspace_id, person.id)

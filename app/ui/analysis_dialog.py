@@ -734,6 +734,12 @@ def launch_analysis(services, request, *, provider_name=None, on_result=None, on
             progress.finished.connect(
                 lambda _: dialog._dialogs.remove(progress) if progress in dialog._dialogs else None)
         progress.cancel_button.clicked.connect(_invoke_guard(dialog.on_cancel_requested))
+    # The progress dialog is the run-time surface (elapsed time + Cancel): show
+    # it for real. Phase 12.3 defect fix - it was built and started but never
+    # shown, leaving the run's cancel/progress UI unreachable.
+    progress.show()
+    progress.raise_()
+    progress.activateWindow()
     progress.start()
     return progress
 

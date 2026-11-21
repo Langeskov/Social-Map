@@ -52,6 +52,10 @@ class TopBar(QFrame):
         self.status.setObjectName("topStatus")
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         row.addWidget(self.status)
+        #: Priority-based status source (Phase 12.3): a higher-priority message
+        #: (the analysis lock) is never overwritten by page-level texts, and the
+        #: last page text is restored when the lock clears.
+        self._status_by_level = {}
 
     # -------------------------------------------------------------- workspace
     def set_workspaces(self, workspaces, current_id) -> None:
@@ -76,8 +80,24 @@ class TopBar(QFrame):
             finally:
                 self.workspace_combo.blockSignals(False)
 
-    def set_status(self, text: str) -> None:
-        self.status.setText(text)
+    def set_status(self, text: str, *, level: str = "page") -> None:
+        """Set one status level; the highest-priority non-empty level wins.
+
+        Levels: ``lock`` (analysis running) beats ``page`` (navigation). An
+        empty text clears that level and re-renders the next one, so a page
+        switch can never hide the analysis-running message and unlocking
+        restores the current page text.
+        """
+        if text:
+            self._status_by_level[level] = text
+        else:
+            self._status_by_level.pop(level, None)
+        for priority in ("lock", "page"):
+            message = self._status_by_level.get(priority)
+            if message:
+                self.status.setText(message)
+                return
+        self.status.setText("")
 
 
 class ContextBar(QFrame):

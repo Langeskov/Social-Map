@@ -14,6 +14,7 @@ The rules under test are the ones a user can observe:
 """
 import json
 import logging
+import threading
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -834,3 +835,101 @@ def test_buttons_outside_the_shell_keep_a_hidden_run_holder(analysis_ui):
         c.qt_app.processEvents()
     assert c.transport.requests == []
     assert c.errors == []
+
+
+# ------------------------------------------- workspace lock spans the worker
+
+def start_gated_run(c, monkeypatch, gate):
+    """Confirm a real run whose worker blocks in ``create_run`` until ``gate``."""
+    real_create_run = c.services.analysis.create_run
+
+    def slow_create_run(request, *, provider_name=None, cancel=None):
+        assert gate.wait(timeout=15), "test gate never opened"
+        return real_create_run(request, provider_name=provider_name, cancel=cancel)
+
+    monkeypatch.setattr(c.services.analysis, "create_run", slow_create_run)
+    options = c.page.analyze_target("PERSON", c.person.id)
+    c.qt_app.processEvents()
+    options.accept()
+    c.qt_app.processEvents()
+    progress = options.progress
+    assert progress is not None, "confirming must start the worker"
+    assert not progress.worker.isFinished()
+    return progress
+
+
+def test_running_analysis_locks_workspace_until_the_worker_ends(analysis_ui, monkeypatch):
+    c = analysis_ui
+    window, page = c.window, c.page
+    others = c.services.workspaces.create("切换目标")
+    window.workspace_context.refresh()
+    window.top_bar.set_workspaces(window.workspace_context.workspaces,
+                                  window.workspace_context.workspace_id)
+    assert window.top_bar.workspace_combo.isEnabled() is True
+    gate = threading.Event()
+    progress = start_gated_run(c, monkeypatch, gate)
+    # The lock is live while the real QThread runs.
+    assert window.top_bar.workspace_combo.isEnabled() is False
+    assert "分析运行中" in window.top_bar.status.text()
+    assert page.analysis_locked() is True
+    # Switching pages must not overwrite the analysis-running status.
+    window.navigation.setCurrentRow(0)
+    c.qt_app.processEvents()
+    assert "分析运行中" in window.top_bar.status.text()
+    window.navigation.setCurrentRow(4)
+    c.qt_app.processEvents()
+    assert "分析运行中" in window.top_bar.status.text()
+    # A cancel request is not a finished worker: the lock stays.
+    progress.cancel_requested()
+    c.qt_app.processEvents()
+    assert window.top_bar.workspace_combo.isEnabled() is False
+    assert "分析运行中" in window.top_bar.status.text()
+    # Only the QThread's real end releases the lock.
+    gate.set()
+    assert pump(c.qt_app, lambda: progress.worker.isFinished())
+    c.qt_app.processEvents()
+    assert page.analysis_locked() is False
+    assert window.top_bar.workspace_combo.isEnabled() is True
+    assert "分析运行中" not in window.top_bar.status.text()
+    # Unlocking restored the page-level status instead of leaving it empty.
+    assert window.top_bar.status.text() != ""
+
+
+def test_closing_the_progress_dialog_does_not_unlock_early(analysis_ui, monkeypatch):
+    c = analysis_ui
+    window = c.window
+    gate = threading.Event()
+    progress = start_gated_run(c, monkeypatch, gate)
+    # Closing while running means "cancel": the dialog is kept open and the
+    # lock must survive until the worker truly ends.
+    progress.close()
+    c.qt_app.processEvents()
+    assert progress.isVisible() is True
+    assert window.top_bar.workspace_combo.isEnabled() is False
+    assert "分析运行中" in window.top_bar.status.text()
+    gate.set()
+    assert pump(c.qt_app, lambda: progress.worker.isFinished())
+    c.qt_app.processEvents()
+    assert window.top_bar.workspace_combo.isEnabled() is True
+    assert "分析运行中" not in window.top_bar.status.text()
+
+
+def test_failed_worker_still_unlocks_the_workspace(analysis_ui, monkeypatch):
+    c = analysis_ui
+    window = c.window
+
+    def boom(request, *, provider_name=None, cancel=None):
+        raise RuntimeError("worker-internal-detail")
+
+    monkeypatch.setattr(c.services.analysis, "create_run", boom)
+    options = c.page.analyze_target("PERSON", c.person.id)
+    c.qt_app.processEvents()
+    options.accept()
+    c.qt_app.processEvents()
+    progress = options.progress
+    assert progress is not None
+    assert pump(c.qt_app, lambda: progress.worker.isFinished())
+    c.qt_app.processEvents()
+    assert window.top_bar.workspace_combo.isEnabled() is True
+    assert "分析运行中" not in window.top_bar.status.text()
+    assert c.page.analysis_locked() is False

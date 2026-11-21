@@ -247,9 +247,13 @@ class MainWindow(QMainWindow):
             self.analysis_page.workspace_lock_changed.connect(self._workspace_lock_changed)
 
     def _workspace_lock_changed(self, locked: bool) -> None:
-        """A running analysis locks the global Workspace selector (decision 6)."""
+        """A running analysis locks the global Workspace selector (decision 6).
+
+        The message is a ``lock``-level status: page switches cannot overwrite
+        it, and unlocking restores the page-level status text.
+        """
         self.top_bar.workspace_combo.setEnabled(not locked)
-        self.top_bar.set_status("分析运行中：Workspace 已锁定" if locked else "")
+        self.top_bar.set_status("分析运行中：Workspace 已锁定" if locked else "", level="lock")
 
     # ------------------------------------------------------------------- shell
     def select_page(self, index: int) -> None:

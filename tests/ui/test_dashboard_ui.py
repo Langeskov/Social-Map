@@ -192,8 +192,11 @@ def test_dashboard_workspace_switch_is_isolated(dashboard_ui):
     assert [person.display_name for person in payloads(page.dashboardRecentPeople)] == ["OUTSIDER"]
     assert payloads(page.dashboardRecentEvents) == []
     assert payloads(page.dashboardRecentEvidence) == []
-    assert page.search_panel.workspace_id == other.id
-    assert page.workspace_timeline.workspace_id == other.id
+    # Phase 12.3 boundaries: the TopBar global search and the Events page's
+    # Workspace Timeline follow the context; the Dashboard keeps no hidden copy.
+    assert c.window.global_search.workspace_id == other.id
+    assert c.window.events_page.workspace_timeline.workspace_id == other.id
+    assert not hasattr(page, "search_panel") and not hasattr(page, "workspace_timeline")
     # The first Workspace is untouched and comes back unchanged.
     page.workspace_combo.setCurrentIndex(page.workspace_combo.findData(str(c.ws)))
     assert page.count_labels["people"].text() == "3"
@@ -203,22 +206,25 @@ def test_dashboard_workspace_switch_is_isolated(dashboard_ui):
     assert c.errors == []
 
 
-def test_dashboard_workspace_timeline_shows_events_and_relationship_changes(dashboard_ui):
+def test_workspace_timeline_on_events_shows_events_and_relationship_changes(dashboard_ui):
     c = dashboard_ui
     page = c.page
-    timeline = page.workspace_timeline
+    # The complete Workspace Timeline lives on the Events page since Phase 12.3.
+    timeline = c.window.events_page.workspace_timeline
     assert timeline.workspace_id == c.ws
     kinds = {timeline.table.item(row, 1).text() for row in range(timeline.table.rowCount())}
     assert kinds == {"事件", "关系变更"}
     titles = {timeline.table.item(row, 2).text() for row in range(timeline.table.rowCount())}
     assert {"Recent call", "Old meeting", "Friend 关系状态变更"} <= titles
+    # The Dashboard itself carries statistics and recent lists only.
+    assert not hasattr(page, "workspace_timeline")
     assert c.errors == []
 
 
 def test_dashboard_search_jumps_to_person_and_event(dashboard_ui):
     c = dashboard_ui
-    page = c.page
-    panel = page.search_panel
+    # Phase 12.3: search lives only in the TopBar; its hits route through the shell.
+    panel = c.window.global_search
     assert panel.workspace_id == c.ws
     panel.input.setText("BETA")
     results = panel.refresh()
@@ -228,12 +234,11 @@ def test_dashboard_search_jumps_to_person_and_event(dashboard_ui):
     panel.open_item(panel.result_list.item(0))          # what a click on the row does
     assert c.window.pages.currentIndex() == 1
     assert c.window.people_page.current_detail.person.id == c.people["BETA"].id
-    page.activate()
     panel.input.setText("Recent")
     results = panel.refresh()
     assert "EVENT" in {result.entity_type for result in results}
     event_result = next(result for result in results if result.entity_type == "EVENT")
-    page.open_search_result(event_result)
+    c.window.open_search_result(event_result)
     assert c.window.pages.currentIndex() == 2
     assert c.window.events_page.current_detail.event.id == c.recent_event.id
     assert c.errors == []
@@ -241,8 +246,7 @@ def test_dashboard_search_jumps_to_person_and_event(dashboard_ui):
 
 def test_dashboard_search_row_click_opens_the_person(dashboard_ui):
     c = dashboard_ui
-    page = c.page
-    panel = page.search_panel
+    panel = c.window.global_search
     panel.input.setText("ALPHA")
     assert [result.entity_type for result in panel.refresh()] == ["PERSON"]
     panel.result_list.setCurrentRow(0)
@@ -262,6 +266,6 @@ def test_dashboard_empty_workspace_is_honest(dashboard_ui):
     for name in ("dashboardRecentPeople", "dashboardRecentEvents", "dashboardRecentChanges",
                  "dashboardRecentEvidence"):
         assert getattr(page, name).count() == 0
-    assert page.workspace_timeline.table.rowCount() == 0
+    assert c.window.events_page.workspace_timeline.table.rowCount() == 0
     assert "0" in page.status.text()
     assert c.errors == []

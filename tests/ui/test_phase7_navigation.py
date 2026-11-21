@@ -141,17 +141,16 @@ def search_case(shell):
     return shell
 
 
-def test_unified_search_entry_exists_on_dashboard_and_people(shell):
-    people_panel = shell.window.people_page.search_panel
-    dashboard_panel = shell.window.dashboard_page.search_panel
-    assert isinstance(people_panel, SearchPanel)
-    assert isinstance(dashboard_panel, SearchPanel)
-    assert people_panel.objectName() == "peopleSearch"
-    assert dashboard_panel.objectName() == "dashboardSearch"
-    assert people_panel.workspace_id == shell.ws
-    assert dashboard_panel.workspace_id == shell.ws
-    assert people_panel.input.placeholderText()
-    assert people_panel.rebuild_button.text() == "重建搜索索引"
+def test_unified_search_entry_exists_only_in_the_topbar(shell):
+    panel = shell.window.global_search
+    assert isinstance(panel, SearchPanel)
+    assert panel.objectName() == "globalSearch"
+    assert panel.workspace_id == shell.ws
+    assert panel.input.placeholderText()
+    assert panel.rebuild_button.text() == "重建搜索索引"
+    # Phase 12.3: pages carry no hidden search-panel copies any more.
+    assert not hasattr(shell.window.people_page, "search_panel")
+    assert not hasattr(shell.window.dashboard_page, "search_panel")
     assert shell.errors == []
 
 
@@ -159,7 +158,7 @@ def test_unified_search_entry_exists_on_dashboard_and_people(shell):
                                    "ALPHA AND BETA", "ALPHA OR BETA", "NOT ALPHA", "*", '"', "-",
                                    "ALPHA* -BETA", " AND ", '""'])
 def test_search_accepts_every_query_shape_without_crashing(search_case, query):
-    panel = search_case.window.people_page.search_panel
+    panel = search_case.window.global_search
     panel.input.setText(query)
     results = panel.refresh()
     assert results is None or isinstance(results, list)
@@ -170,7 +169,7 @@ def test_search_accepts_every_query_shape_without_crashing(search_case, query):
 
 
 def test_search_finds_person_alias_and_event_and_evidence(search_case):
-    panel = search_case.window.people_page.search_panel
+    panel = search_case.window.global_search
     panel.input.setText("ALPHA")
     assert "PERSON" in {result.entity_type for result in panel.refresh()}
     panel.input.setText("ALIAS-ONE")
@@ -187,7 +186,7 @@ def test_search_finds_person_alias_and_event_and_evidence(search_case):
 
 
 def test_search_result_rows_show_type_title_time_and_summary(search_case):
-    panel = search_case.window.people_page.search_panel
+    panel = search_case.window.global_search
     panel.input.setText("Chat evening")
     panel.refresh()
     text = panel.result_list.item(0).text()
@@ -198,7 +197,7 @@ def test_search_result_rows_show_type_title_time_and_summary(search_case):
 
 
 def test_clicking_person_result_selects_that_person(search_case):
-    panel = search_case.window.people_page.search_panel
+    panel = search_case.window.global_search
     panel.input.setText("BETA")
     panel.refresh()
     panel.result_list.setCurrentRow(0)
@@ -209,7 +208,7 @@ def test_clicking_person_result_selects_that_person(search_case):
 
 
 def test_clicking_alias_result_opens_its_person(search_case):
-    panel = search_case.window.people_page.search_panel
+    panel = search_case.window.global_search
     panel.input.setText("ALIAS-ONE")
     panel.refresh()
     panel.result_list.setCurrentRow(0)
@@ -219,7 +218,7 @@ def test_clicking_alias_result_opens_its_person(search_case):
 
 
 def test_clicking_event_result_opens_the_events_page(search_case):
-    panel = search_case.window.people_page.search_panel
+    panel = search_case.window.global_search
     panel.input.setText("Planned trip")
     panel.refresh()
     result = panel.results[0]
@@ -232,7 +231,7 @@ def test_clicking_event_result_opens_the_events_page(search_case):
 
 
 def test_clicking_evidence_result_opens_its_event(search_case):
-    panel = search_case.window.people_page.search_panel
+    panel = search_case.window.global_search
     panel.input.setText("chat notes")
     panel.refresh()
     result = next(result for result in panel.results if result.entity_type == "EVIDENCE")
@@ -244,21 +243,22 @@ def test_clicking_evidence_result_opens_its_event(search_case):
     assert search_case.errors == []
 
 
-def test_people_page_search_routes_events_through_the_shell(search_case):
-    """The People page owns Person/Alias jumps and forwards EVENT to the shell."""
-    people_page = search_case.window.people_page
-    people_page.search_panel.input.setText("Chat evening")
-    people_page.search_panel.refresh()
-    result = people_page.search_panel.results[0]
+def test_shell_search_router_opens_the_owning_event(search_case):
+    """Every hit routes through the shell router (open_target), no page copy."""
+    window = search_case.window
+    panel = window.global_search
+    panel.input.setText("Chat evening")
+    panel.refresh()
+    result = panel.results[0]
     assert result.entity_type == "EVENT"
-    people_page.open_search_result(result)
-    assert search_case.window.pages.currentIndex() == 2
-    assert search_case.window.events_page.current_detail.event.id == search_case.event.id
+    window.open_search_result(result)
+    assert window.pages.currentIndex() == 2
+    assert window.events_page.current_detail.event.id == search_case.event.id
     assert search_case.errors == []
 
 
 def test_rebuild_index_button_reindexes_and_reports(search_case):
-    panel = search_case.window.people_page.search_panel
+    panel = search_case.window.global_search
     assert panel.rebuild_button.isEnabled()
     panel.rebuild_button.click()
     assert "搜索索引已重建" in panel.status.text()
@@ -268,7 +268,7 @@ def test_rebuild_index_button_reindexes_and_reports(search_case):
 
 
 def test_include_deleted_widens_the_search(search_case):
-    panel = search_case.window.people_page.search_panel
+    panel = search_case.window.global_search
     search_case.services.events.soft_delete_event(search_case.ws, search_case.event.id)
     panel.input.setText("Chat evening")
     assert panel.refresh() == []

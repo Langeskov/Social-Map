@@ -9,8 +9,10 @@ recent lists) and every row opens the real detail elsewhere:
 * recent relationship  → People page, the Relationship detail.
 
 Nothing is inferred: there is no relationship strength, no affinity, no "danger"
-score and no Analysis placeholder data. The unified search entry sits on top so
-the page can also answer "where is X?".
+score and no Analysis placeholder data. Global search lives only in the TopBar,
+and the complete Workspace Timeline lives on the Events page (Phase 12.3): the
+Dashboard carries statistics and recent lists, nothing hidden and no extra
+queries behind invisible widgets.
 """
 import logging
 from uuid import UUID
@@ -24,8 +26,6 @@ from app.services.dashboard import RelationshipChange
 from app.ui.context import ContextPage
 from app.ui.design.widgets import SectionHeader
 from app.ui.event_detail import plain_label, time_text, ROLE
-from app.ui.search_panel import SearchPanel
-from app.ui.timeline_panel import MODE_WORKSPACE, TimelinePanel
 
 logger = logging.getLogger(__name__)
 
@@ -78,13 +78,6 @@ class DashboardPage(ContextPage, QWidget):
         self.refresh_button.clicked.connect(self.refresh)
         top.addWidget(self.refresh_button)
         layout.addLayout(top)
-        self.search_panel = SearchPanel(services, self, name="dashboardSearch", compact=True)
-        self.search_panel.navigate_requested.connect(self.open_search_result)
-        # Phase 11 decision 4: the Dashboard no longer embeds a second search box or a
-        # full Workspace Timeline. The widgets stay constructed (their contracts are
-        # addressed by the Phase 7 tests) but are not part of the page layout: search
-        # lives in the TopBar and the complete Timeline lives on People / Events.
-        self.search_panel.hide()
         counts = QGroupBox("统计（只统计已记录的事实，不包含推断）")
         counts.setObjectName("dashboardCounts")
         counts_row = QHBoxLayout(counts)
@@ -111,14 +104,6 @@ class DashboardPage(ContextPage, QWidget):
         self.recent_analysis = self.analysis_list
         splitter.setSizes([240, 240, 260, 240, 240])
         layout.addWidget(splitter, 1)
-        # The complete Workspace Timeline is no longer duplicated here (decision 4).
-        self.workspace_timeline = TimelinePanel(services, self)
-        self.workspace_timeline.mode = MODE_WORKSPACE
-        self.workspace_timeline.set_person(self.workspace_id, None)
-        self.workspace_timeline.mode_combo.setCurrentIndex(
-            max(0, self.workspace_timeline.mode_combo.findData(MODE_WORKSPACE)))
-        self.workspace_timeline.mode_combo.hide()
-        self.workspace_timeline.hide()
         self.status = plain_label()
         layout.addWidget(self.status)
         self.load_workspaces()
@@ -191,12 +176,11 @@ class DashboardPage(ContextPage, QWidget):
             self.workspace_context.set_workspace(workspace_id)
             return
         self.workspace_id = workspace_id
-        self.search_panel.set_workspace(self.workspace_id)
         self.refresh()
 
     # ------------------------------------------------- Phase 11: context protocol
     def clear_context(self):
-        """Forget the Workspace's snapshot: no count, row or search result survives."""
+        """Forget the Workspace's snapshot: no count or row survives."""
         self.snapshot = None
         for widget in self.list_widgets():
             widget.blockSignals(True)
@@ -204,15 +188,10 @@ class DashboardPage(ContextPage, QWidget):
             widget.blockSignals(False)
         for label in self.count_labels.values():
             label.setText("—")
-        self.search_panel.input.blockSignals(True)
-        self.search_panel.input.clear()
-        self.search_panel.input.blockSignals(False)
-        self.search_panel.set_workspace(None)
         self.status.setText("")
 
     def load_workspace(self, workspace_id):
         self.load_workspaces()
-        self.search_panel.set_workspace(workspace_id)
         self.refresh()
 
     def sync_workspace_combo(self):
@@ -227,7 +206,6 @@ class DashboardPage(ContextPage, QWidget):
 
     def activate(self):
         self.load_workspaces()
-        self.search_panel.set_workspace(self.workspace_id)
         self.refresh()
 
     def refresh(self):
@@ -244,8 +222,6 @@ class DashboardPage(ContextPage, QWidget):
         if self.workspace_id is None:
             self.status.setText("请先选择 Workspace。")
             return self.snapshot
-        self.search_panel.set_workspace(self.workspace_id)
-        self.workspace_timeline.set_person(self.workspace_id, None)
 
         def load():
             snapshot = self.service.snapshot(self.workspace_id,
@@ -344,22 +320,6 @@ class DashboardPage(ContextPage, QWidget):
         elif kind is AnalysisRun:
             self.navigate_requested.emit("analysis_run", entry.id)
         return entry
-
-    def open_search_result(self, result):
-        """Alias / Evidence results carry the parent id the navigation needs."""
-        if result.entity_type == "PERSON":
-            self.navigate_requested.emit("person", result.entity_id)
-        elif result.entity_type == "ALIAS":
-            person_id = result.metadata.get("person_id")
-            if person_id is not None:
-                self.navigate_requested.emit("person", person_id)
-        elif result.entity_type == "EVIDENCE":
-            event_id = result.metadata.get("event_id")
-            if event_id is not None:
-                self.navigate_requested.emit("event", event_id)
-        elif result.entity_type == "EVENT":
-            self.navigate_requested.emit("event", result.entity_id)
-        return result
 
 
 __all__ = ["DashboardPage", "COUNT_LABELS", "join_parts", "run_operation"]

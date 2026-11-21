@@ -7,6 +7,7 @@ a past analysis must still show exactly what the model was given.
 """
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
+import unicodedata
 from uuid import UUID
 
 from app.domain.entities import Event, Evidence, Person
@@ -27,14 +28,40 @@ OBSERVATION_KIND = "OBSERVATION"
 FACT = "FACT"
 OBSERVATION = "OBSERVATION"
 
-#: Conservative estimate: CJK text is roughly one token per 1.5 characters, so a
-#: two-characters-per-token bound never underestimates a mixed context.
+#: Non-CJK text runs at roughly four characters per token in practice; counting
+#: two characters per token keeps the estimate conservative (too high) for
+#: ASCII-heavy content.
 CHARS_PER_TOKEN = 2
+#: CJK / full-width text averages ~1.5 characters per token and can reach one
+#: token per character, so every such character is counted as a whole token.
+#: (The old single-ratio len/2 estimate *undercounted* CJK text by ~25% against
+#: this very same 1.5-characters-per-token figure; see docs/phase13-evaluation.md.)
+CJK_CHARS_PER_TOKEN = 1
 DEFAULT_MAX_CONTEXT_TOKENS = 24000
 
 
+def _is_wide_char(ch: str) -> bool:
+    return unicodedata.east_asian_width(ch) in ("W", "F")
+
+
 def estimate_tokens(text: str) -> int:
-    return (len(text) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+    """Conservative offline token estimate; never a provider-reported count.
+
+    Wide (CJK / full-width) characters count as one token each, everything else
+    at ``CHARS_PER_TOKEN`` characters per token. The estimate deliberately errs
+    high so the context budget guard rarely lets a context through that a real
+    tokenizer would count over budget — but it cannot *guarantee* any specific
+    tokenizer's count. Only the provider's usage metadata (Phase 13.3) can.
+    """
+    wide = 0
+    narrow = 0
+    for ch in text:
+        if _is_wide_char(ch):
+            wide += 1
+        else:
+            narrow += 1
+    return (wide + CJK_CHARS_PER_TOKEN - 1) // CJK_CHARS_PER_TOKEN \
+        + (narrow + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
 
 
 def event_instant(event: Event) -> datetime:

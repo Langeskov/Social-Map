@@ -57,6 +57,25 @@ credential_ref = "env:OPENAI_API_KEY"
 
 ## ContextBuilder
 
+### 来源曝光契约（Phase 13.1）
+
+`ContextSnapshot` 同时产出一份版本化的 **Context Entity Manifest**，记录每个实体的
+类型、UUID、上下文角色与实际曝光等级（PERSON：`PROFILE`／`IDENTITY_ONLY`／
+`PARTICIPANT_CONTEXT`；EVIDENCE：`METADATA_ONLY`／`CONTENT_INCLUDED` 等，按实体类型
+区分）。同一份 Manifest 驱动：
+
+1. `rendered_context` 中的 `[TYPE:<uuid>]` 实体标记（有限曝光人物会注明"仅身份信息，
+   未提供完整档案"）；
+2. `ContextSnapshot.source_ids()`；
+3. `AnalysisService._persist_sources()` 写入的四张 `analysis_*_source` 表；
+4. Phase 13.2 的引用验证。
+
+因此关系端点、事件参与人等"只被表示、未提供档案"的人物也会成为 Person 来源，但
+曝光等级如实记录为 `IDENTITY_ONLY`／`PARTICIPANT_CONTEXT`。**AnalysisSource 成员资格
+不代表完整资料已提供，也不代表任何结论有依据。** 旧 Snapshot（无 Manifest）按旧
+scope 规则读取，不回填、不升级。详见
+[Phase 13 评估框架 §10](<phase13-evaluation.md>)。
+
 输入 `AnalysisRequest`：
 
 ```text
@@ -76,7 +95,31 @@ selected_event_ids / selected_evidence_ids / max_context_tokens
 
 ## 事实 / 观察 / 推断
 
-System Prompt 明确要求：不修改事实、区分 Fact／Observation／Inference、不编造记录、不引用未提供的信息、明确不确定性、只使用给定证据，并且**不给出好感度／危险度／人格类别或任何 0-100 评分**。输出模板要求四节：Facts／Observations／Interpretations／Uncertainties；UI 用 `split_result_sections` 做结构化展示，**不强制 JSON**。
+System Prompt 明确要求：不修改事实、区分 Fact／Observation／Inference、不编造记录、
+不引用未提供的信息、明确不确定性、只使用给定证据，引用来源只能使用上下文中
+`[TYPE:<uuid>]` 的标记（不得编造 UUID），并且**不给出好感度／危险度／人格类别或任何
+0-100 评分**。
+
+输出契约（Phase 13.1 起）是 **JSON schema 1**：`schema_version` + `facts` /
+`observations` / `interpretations` / `uncertainties` 四个数组；每项
+`{"content", "references": [{"type", "id"}], "confidence_description", "notes"}`。
+Provider 不支持 JSON mode 时也按普通文本返回，解析器负责降级；旧版四段 Markdown 继续
+兼容。**原始回答永远保留**，结构化只是解析产物。
+
+## 结构化结果与解析器（Phase 13.1）
+
+- DTO：`app/domain/entities/analysis_result.py`（`AnalysisResult` / `AnalysisEntry` /
+  `AnalysisReference`，纯 stdlib）；
+- 解析器：`app/services/analysis_result_parser.py`（纯 Python、无 Qt、无数据库、无
+  LLM、无网络），支持合法 JSON、JSON 前后夹杂文本/代码围栏、缺字段、类型错误、非法
+  引用结构、重复条目、多语言标题、旧版 Markdown、纯文本与超大文本；
+- `parse_status`：`PARSED_JSON`／`PARSED_JSON_FRAGMENT`／`LEGACY_MARKDOWN`／
+  `UNSTRUCTURED_TEXT`／`EMPTY`／`TOO_LARGE`；无法识别的内容进入
+  `unparsed_content`，解析告警进入 `warnings`，**不静默删除任何内容**；
+- UI：结果对话框默认展示结构化小节（引用标注为"未校验"），并提供"模型原始输出"
+  只读区与解析提示；解析失败降级为原文展示，解析告警**不代表模型调用失败**；
+- 解析出的引用只是**结构**：是否真实存在、是否属于本次 Run、曝光等级是否足够，
+  由 Phase 13.2 的验证器判定。
 
 ## AnalysisRun 与 AnalysisSource
 
@@ -85,6 +128,12 @@ System Prompt 明确要求：不修改事实、区分 Fact／Observation／Infer
 四张来源关联表（`analysis_person_source`／`analysis_relationship_source`／`analysis_event_source`／`analysis_evidence_source`）各自记录 `analysis_run_id + workspace_id + target_id`，并带两个复合 FK：`(workspace_id, analysis_run_id) → analysis_run(workspace_id, id)` 与 `(workspace_id, target_id) → 对应实体(workspace_id, id)`。**不使用** `source_type/source_id` 这种无法 FK 校验的多态列。
 
 **Source 与 Snapshot 都要保存**：Source 回答"引用了哪些数据库实体"，Snapshot 回答"真正发给模型的文本是什么"。事实会变，所以过去的分析必须能重现当时的上下文。
+
+**来源集合由 Manifest 驱动（Phase 13.1）**：`source_ids()` 现在来自
+`ContextSnapshot.entity_manifest`（而非 scope 列表），`_persist_sources()` 因此自动
+记录 `IDENTITY_ONLY` 端点与 `PARTICIPANT_CONTEXT` 参与人；Manifest 连同
+`version` 存在 `context_snapshot` JSON 里，**没有数据库迁移**。旧 Snapshot 无
+Manifest 时按旧 scope 规则读取（不回填、不修改历史 Run）。
 
 ## 错误处理与重试
 

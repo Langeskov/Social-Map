@@ -32,7 +32,8 @@
    D 矛盾记录、E FACT/OBSERVATION/INFERENCE 边界、F 关系变化（ACTIVE/PAUSED/ENDED/
    补录/未来生效）、G 五种时间范围（7/30/90/ALL/CUSTOM）、H Evidence 边界
    （元数据/原文/用户注释/附件元数据）、I Memory 边界（默认关闭/开启/过期/未生效）、
-   J 超长上下文（近限 21527/24000 ≈ 90% 与超限显式拒绝）。
+   J 超长上下文（近限 21527/24000 ≈ 90% 与超限显式拒绝；13.1 带标记后重校准为
+   21524，见 13.1 小节）。
 3. **Token 估算复核（6.5）与修复**：原 `CHARS_PER_TOKEN=2` 的注释声称"永不低估 CJK"，
    实际按其自身 1.5 字符/token 数据低估约 25%。已改为保守策略（CJK/全角 1 字符=1 token，
    其余 2 字符/token），边界测试固定"超预算显式拒绝、不静默截断"。详见
@@ -186,6 +187,149 @@ Entity Manifest 记录实体曝光程度**的方案（不使用"旧来源集合 
 
 ---
 
+---
+
+## Phase 13.1 — Structured Analysis Contract + Context Entity Manifest
+
+**目标**：把非结构化文本回答升级为可解析、可验证、可显示的结构化结果契约；同时按
+13.0 补充决策实现 **Context Entity Manifest 联动**（标记 / source_ids / 持久化来源 /
+数据集）。**不实现 13.2 的正式验证器**（`VALID_LIMITED` 等状态、候选引用一致性）。
+
+### 完成内容
+
+1. **结构化结果契约与解析器**（`app/domain/entities/analysis_result.py`、
+   `app/services/analysis_result_parser.py`）：
+   - DTO：`AnalysisResult`（raw_text / schema_version / parse_status / 四节 entries /
+     unparsed_content / warnings）、`AnalysisEntry`（content / references /
+     confidence_description / notes）、`AnalysisReference`（type + UUID）；
+   - 解析器纯 Python（无 Qt / DB / LLM / 网络）：合法 JSON、夹杂文本/代码围栏、
+     缺字段、类型错误、非法引用、重复条目、多语言标题、旧版 Markdown、纯文本、
+     空输出、超大输出；`parse_status` 六态；未识别内容进 `unparsed_content`，
+     告警进 `warnings`，**原文永不改写**。
+2. **Prompt 输出契约**：输出模板改为 JSON schema 1（四个数组 + references +
+   confidence_description），系统提示要求引用只能使用上下文中的 `[TYPE:<uuid>]`
+   标记且不得编造 UUID；旧版四段 Markdown 仍可解析（历史结果与 Fake 响应兼容）。
+3. **Context Entity Manifest**（`app/services/entity_manifest.py` + `context.py`）：
+   - 版本化 Manifest（`version="1"`）记录实体类型、UUID、角色与**按类型**的曝光等级
+     （PERSON：PROFILE / IDENTITY_ONLY / PARTICIPANT_CONTEXT；EVENT：EVENT_DETAIL /
+     EVENT_REFERENCE；EVIDENCE：METADATA_ONLY / CONTENT_INCLUDED；RELATIONSHIP /
+     MEMORY 各自枚举）；
+   - 渲染上下文为每个实体写入 `[TYPE:<uuid>]` 标记；有限曝光人物注明"仅身份信息/
+     参与人信息，未提供完整档案"；
+   - `ContextSnapshot.source_ids()` 与 `included_memory_ids` 改由 Manifest 驱动；
+     `_persist_sources()` 未改代码即自动落到四张 `analysis_*_source`；
+   - 多维排序改用"去掉标记后的文本"作 key，保证行序不随随机 UUID 抖动；
+   - 旧 Snapshot（无 Manifest）回退旧 scope 规则，不回填、不修改历史 Run；
+   - 发现并处理 `history.event_id` 仅以链接出现的情形：渲染为
+     `[EVENT:<uuid>]`，曝光等级 `EVENT_REFERENCE`，保证上下文无未标记 UUID。
+4. **UI**（`analysis_dialog.py` / `analysis_page.py`）：结果对话框默认展示结构化
+   小节（引用标注"引用（未校验）"），新增"模型原始输出"只读区、解析状态与解析提示
+   （提示不视为模型失败）；解析失败降级为原文展示；页面详情展示结构化摘要与
+   解析状态；旧答案按旧版四段渲染，行为不变。
+5. **评估层**：`EXPOSURE_MANIFEST` 指标启用（Manifest ↔ 标记 ↔ source_ids ↔ 一致性、
+   Evidence 曝光不夸大、无未标记 UUID）；数据集恢复 `IDENTITY_ONLY` /
+   `PARTICIPANT_CONTEXT` 人物到 `required_sources`；J 场景按标记后的体积重新校准
+   （85 个批量事件 / 25 条批量证据）；可复现性改为"掩码后逐字节一致"（标记本身是
+   运行期 UUID）。
+
+### 修改文件
+
+- 新增：`app/domain/entities/analysis_result.py`、`app/services/analysis_result_parser.py`、
+  `app/services/entity_manifest.py`、`tests/services/test_analysis_result_parser.py`、
+  `tests/services/test_entity_manifest.py`
+- 修改：`app/services/context.py`（Manifest/标记/source_ids/渲染排序）、
+  `app/services/prompt.py`（JSON 契约）、`app/ui/analysis_dialog.py`、
+  `app/ui/analysis_page.py`、`app/evaluation/models.py`（EXPOSURE_MANIFEST 启用）、
+  `app/evaluation/runner.py`（Manifest 检查）、`app/evaluation/report.py`、
+  `tests/evaluation/dataset/scenarios/*`（required_sources/included）、
+  `tests/evaluation/dataset/fixtures/fixture-j-large.json`（体积校准）、
+  `tests/evaluation/test_dataset.py`、`tests/evaluation/test_evaluation_runner.py`、
+  `tests/services/test_analysis_service.py`、`tests/ui/test_analysis_ui.py`、
+  `docs/analysis.md`、`docs/phase13-evaluation.md`
+- 删除：无
+
+### 边界与数据库变更
+
+- Domain / Service / UI 边界：保持（UI→Service→Repository；解析器无副作用）。
+- **无数据库迁移、无 schema 变化**：Manifest 存入现有 `analysis_run.context_snapshot`
+  JSON（新增 `entity_manifest` 键，带版本）；旧行读取时回退。
+- 事实保护：分析运行不改任何事实行（测试固定 Person/Relationship/Event/Evidence 计数）；
+  Manifest 只描述"模型看到了什么"，不代表结论有依据。
+
+### 新增/修改测试
+
+- 新增 24 项：`test_analysis_result_parser.py`（14）——JSON 契约、围栏/夹杂、缺字段、
+  类型错误、非法引用、重复条目、未知字段、字符串条目、旧版 Markdown、纯文本、
+  空/超大、确定性、未校验展示；`test_entity_manifest.py`（10）——PERSON/RELATIONSHIP/
+  EVENT 曝光矩阵、异 Workspace 隔离、Manifest↔标记↔持久化一致性、多角色合并、
+  Evidence 曝光诚实、版本与回环、旧快照兼容且不被改写。
+- 修改（迁移）6 个测试文件：`test_analysis_service.py`（来源集合含 IDENTITY_ONLY
+  端点；提示词断言改为 JSON 契约）；`test_analysis_ui.py`（新增 2 项结构化 UI 测试：
+  小节/原始输出/解析状态；解析告警可见但非失败）；`test_evaluation_runner.py`
+  （可复现性掩码语义）；`test_dataset.py`（J 批量数量）；`test_export_service.py`、
+  `test_memory_service.py`（来源集合含端点，未削弱任何事实断言）。
+- 数据集：A/B/C/J 场景恢复次要人物 `required_sources`；J 批量体积校准。
+- 5 项 Windows symlink 环境 Skip 保持原义。
+
+### 测试运行命令与结果
+
+子集：
+
+```powershell
+& .\.venv\Scripts\python.exe -s -m pytest tests/services/test_entity_manifest.py tests/services/test_analysis_result_parser.py tests/services/test_context_builder.py tests/services/test_analysis_service.py tests/evaluation tests/ui/test_analysis_ui.py -q -ra
+```
+
+全量回归（13.1 完成后）：
+
+```powershell
+& .\.venv\Scripts\python.exe -s -m pytest -q -ra
+```
+
+- **1583 collected / 1578 passed / 5 environment-skipped / 0 failed（退出码 0，8:22）**
+- 增量核对：1557（13.0 完成后）+ 26（13.1 新增：解析器 14 + Manifest 10 + UI 2）
+  = 1583 ✓；5 项 Windows symlink 环境 Skip 保持原义。
+
+### Git 提交
+
+| Commit | 说明 |
+|---|---|
+| `120feea` | feat(analysis)：结构化结果契约 + 解析器 + Prompt 契约 + UI |
+| `34a2cf4` | feat(analysis)：Context Entity Manifest 驱动来源与标记（含评估层与测试迁移） |
+| （本文件提交） | docs(phase13)：记录 Phase 13.1 |
+
+### 与原始计划不同的实现及理由
+
+1. **Manifest 存入 `context_snapshot` JSON，不新增表/列**：符合决策"优先复用四类
+   来源表、无 migration"；旧快照无 Manifest 时回退旧规则。
+2. **`EVENT_REFERENCE` 曝光等级**（决策列表之外）：历史行可能只暴露事件 UUID 链接
+   （`history.event_id`，现有数据可经备份恢复产生）；不新增等级会迫使渲染出未标记
+   UUID 或虚构 `EVENT_DETAIL` 曝光。按类型枚举的原则允许该最小扩项。
+3. **可复现性改为掩码比较**：13.1 起实体标记本身含运行期 UUID，原始渲染文本不可能
+   逐字节稳定；`masked_digest` 比较 + 显式易变字段声明是唯一诚实方案。
+4. **解析状态/结构化结果不单独持久化**：从原始 `result` 文本在内存中解析（决策
+   7.8 的默认方案），避免出现第二个事实来源；需要重解析时结果可重复。
+
+### 已知缺陷 / 结转 13.2
+
+- **引用验证器未实现**：解析出的 references 只是结构，尚未核对存在性/归属/类型/
+  曝光等级；UI 明确标注"引用（未校验）"。
+- **候选引用语义过时（13.2 范围）**：`MemoryService.candidate_references()` 仍只扫描
+  原始文本中的 `[TYPE:uuid]` 标记并返回 `accepted` 布尔；结构化 JSON 输出中的
+  references 不会被它识别，也未区分 `VALID_FULL`/`VALID_LIMITED`。这与决策 §4
+  一致地留给 13.2 统一（不得保留过时语义）。
+- **Prompt 层未启用 provider `response_format`**：仅提示词约定；Provider 能力声明
+  与响应元数据属 13.3/13.4。
+- 结构化解解析对超大输出只保留原文（`TOO_LARGE`），不做分段解析。
+
+### 下一阶段（13.2）的前置条件
+
+✅ 结构化 references 与 Manifest 就绪；`source_ids()`/持久化来源由同一 Manifest 驱动；
+✅ 旧快照兼容路径有测试；✅ 暴露等级（含 EVENT_REFERENCE）可查询。
+13.2 需要：8 种验证状态、Manifest+AnalysisSource 联合校验、候选引用 API 状态化
+（替换 accepted Boolean）并与 AnalysisPage 展示一致、有限曝光样本 UI 状态。
+
+---
+
 ## 最终回归（每子阶段后更新）
 
 | 阶段 | collected | passed | skipped | failed | 退出码 |
@@ -193,3 +337,5 @@ Entity Manifest 记录实体曝光程度**的方案（不使用"旧来源集合 
 | Phase 12.5 末 | 1516 | 1511 | 5 | 0 | 0 |
 | Phase 13.0 开工基线 | 1516 | 1511 | 5 | 0 | 0 |
 | Phase 13.0 完成后 | 1557 | 1552 | 5 | 0 | 0 |
+| Phase 13.0 补充（契约形式化） | — | — | — | — | 仅文档+注册表；相关子集 58 项通过 |
+| Phase 13.1 完成后 | 1583 | 1578 | 5 | 0 | 0 |

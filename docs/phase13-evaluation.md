@@ -109,11 +109,10 @@ tests/services/test_token_estimate.py     Token 估算边界（6.5 复核配套�
 - `expected_error`——`null` 或 `"CONTEXT_LIMIT"`（超限时必须显式拒绝并给出指引，
   不得静默截断）。
 
-**语义注意**：`included/excluded` 验证的是来源集合，不是文本出现。次要人物（如
-关系端点、事件参与人）在 Phase 13.1 实现来源曝光契约（§10）之前不在
-`source_ids()` 中——因此 13.0 数据集用 `required_text` 断言其文本出现；13.1 起
-它们按 `IDENTITY_ONLY` / `PARTICIPANT_CONTEXT` 进入来源集合并重新纳入
-`required_sources`。
+**语义注意**：`included/excluded` 验证的是来源集合，不是文本出现。Phase 13.1 实现
+来源曝光契约（§10）后，关系端点等 `IDENTITY_ONLY`／参与人 `PARTICIPANT_CONTEXT` 人物
+已进入 `source_ids()`，数据集相应把次要人物重新纳入 `required_sources`（同时保留
+`required_text` 文本断言）。
 
 ### 3.5 参考答案防泄漏原则（硬性）
 
@@ -159,12 +158,12 @@ selected_* / custom_start / custom_end / max_context_tokens）、`expected_facts
 产生方式（DETERMINISTIC / REFERENCE_BASED / HUMAN / HUMAN_ASSISTED）**。
 没有单一总分；综合分数不得取代分项。N/A 表示"本次没有能力评估"，绝不表示通过。
 
-| 指标 | 类型 | 计算方法 | 参考答案 | 人工 | 13.0 可用 |
+| 指标 | 类型 | 计算方法 | 参考答案 | 人工 | 离线可用（阶段） |
 |---|---|---|---|---|---|
-| PARSE_VALIDITY | Deterministic | 13.1 解析器解析 raw output | 否 | 否 | 否（N/A） |
-| REQUIRED_SECTIONS | Deterministic | 解析后必需小节检查（13.1） | 否 | 否 | 否（N/A） |
-| CITATION_VALIDITY | Deterministic | 引用 UUID/类型/Run/Workspace 核对（13.2） | 否 | 否 | 否（N/A） |
-| CROSS_WORKSPACE_LEAKAGE | Deterministic | 输出引用跨 Workspace 拒绝（13.2） | 否 | 否 | 否（N/A） |
+| PARSE_VALIDITY | Deterministic | 13.1 解析器解析 raw output | 否 | 否 | 13.1 起可评估在线输出；离线数据集无模型输出 → N/A |
+| REQUIRED_SECTIONS | Deterministic | 解析后必需小节检查（13.1） | 否 | 否 | 同上 |
+| CITATION_VALIDITY | Deterministic | 引用 UUID/类型/Run/Workspace/曝光核对（13.2） | 否 | 否 | 否（N/A，13.2） |
+| CROSS_WORKSPACE_LEAKAGE | Deterministic | 输出引用跨 Workspace 拒绝（13.2） | 否 | 否 | 否（N/A，13.2） |
 | FACT_COVERAGE | Reference-based | 对照 expected_facts 比对 | 是 | 否 | 否（N/A） |
 | UNSUPPORTED_CLAIMS | Reference-based / Human | 自动检查引用合法性 + 人工确认语义 | 是 | 是 | 否（N/A） |
 | UNCERTAINTY_HANDLING | Reference-based / Human | 对照 expected_uncertainties + 人工 | 是 | 是 | 否（N/A） |
@@ -177,7 +176,7 @@ selected_* / custom_start / custom_end / max_context_tokens）、`expected_facts
 | TOKEN_ESTIMATE_BOUND | Deterministic | 估算 ≤ 预算；超限显式拒绝 | 否 | 否 | **是** |
 | CONTEXT_ISOLATION | Deterministic | 异 Workspace 记录文本与 UUID 双缺席 | 否 | 否 | **是** |
 | CONTEXT_EXPECTATIONS | Deterministic | expected_context 逐条断言 | 否 | 否 | **是** |
-| EXPOSURE_MANIFEST | Deterministic | Manifest ↔ source_ids / 持久化来源 / 上下文标记一致 | 否 | 否 | 否（N/A，13.1 启用） |
+| EXPOSURE_MANIFEST | Deterministic | Manifest ↔ source_ids / 持久化来源 / 上下文标记一致 | 否 | 否 | **是（13.1 起）** |
 
 N/A 行必须带原因（如"结果解析器在 Phase 13.1 提供"）。**禁止**把人工评价项
 伪装成程序已验证；**禁止**用 0 分代替 N/A。
@@ -240,11 +239,12 @@ CJK 实际约 `len/1.5 ≈ 0.67·len` tokens，而估算为 `0.5·len`——**�
 
 同一数据集字节 + 同一 Scenario 重复运行：
 
-- **逐字节复现**：渲染上下文（无 UUID/无 Memory 时间戳的场景连原始摘要都一致）、
-  指标状态与结论、来源键绑定；
+- **掩码后逐字节复现**：渲染上下文、指标状态与结论、来源键绑定；
 - **声明的易变值**（掩码后比较，`mask_volatile_text`）：`run_id`、运行时间戳、
   Memory 的 `confirmed_at`（渲染为「确认于 …」，由服务时钟决定）、物化行 UUID
-  （渲染为 `id=…` / `event=…`）。
+  （Phase 13.1 起每个实体在上下文中带 `[TYPE:<uuid>]` 标记，标记即唯一的
+  UUID 来源）。因此原始摘要 `rendered_digest` 天然逐次不同，跨运行比较用
+  `masked_digest`；逻辑内容（键、文本、固定时间、结构、曝光等级）必须一致。
 
 `EvaluationRunResult.volatile_fields` 在每次运行结果中显式声明上述字段；
 报告中的 `masked_digest` 用于跨运行比较，`rendered_digest` 保留原始字节摘要。
@@ -319,20 +319,22 @@ CJK 实际约 `len/1.5 ≈ 0.67·len` tokens，而估算为 `0.5·len`——**�
 - **优先复用已有四类 `analysis_*_source` 表**；本决策不要求新增表或 Alembic
   migration；若实现中发现必须新增字段，先报告原因与最小迁移方案再动手。
 
-### 10.7 评估契约影响
+### 10.7 评估契约影响（13.1 已落地）
 
 - 指标注册表新增 `EXPOSURE_MANIFEST`（确定性：Manifest 与 source_ids / 持久化
-  来源 / 上下文标记一致性）；13.0 运行中为 N/A（"Manifest 联动在 Phase 13.1
-  提供"），13.1 启用；
-- 13.1 起数据集把 `IDENTITY_ONLY` / `PARTICIPANT_CONTEXT` 人物重新纳入
+  来源 / 上下文标记一致性）；**13.1 已启用**，离线运行对每个场景检查；
+- 数据集把 `IDENTITY_ONLY` / `PARTICIPANT_CONTEXT` 人物重新纳入
   `required_sources`，并以 Manifest 断言其曝光等级；
-- 决策 §7 要求的测试在 13.1/13.2 分阶段落地（候选引用"有限信息状态"属于
-  13.2 验证器范围）。
+- 决策 §7 要求的测试在 13.1/13.2 分阶段落地：Manifest／标记／持久化一致性、
+  历史兼容、多角色合并、Evidence 曝光诚实性已完成（`tests/services/test_entity_manifest.py`）；
+  候选引用"有限信息状态"属于 13.2 验证器范围，尚未实现。
 
 ## 11. 已知局限
 
-1. **模型输出指标尚未评估**：PARSE_VALIDITY / CITATION_VALIDITY / FACT_COVERAGE 等
-   依赖 13.1（解析器）与 13.2（引用校验），本阶段一律 N/A。
+1. **模型输出指标在离线运行中仍为 N/A**：13.1 已提供解析器（`PARSE_VALIDITY` /
+   `REQUIRED_SECTIONS` 可评估在线输出），但离线数据集不含模型回答，因此离线运行
+   仍报告 N/A；引用合法性 `CITATION_VALIDITY` / `CROSS_WORKSPACE_LEAKAGE` 与
+   `FACT_COVERAGE` 等要等 13.2 校验器与参考答案比对。
 2. ~~来源集合边界（既有契约）~~ **已由 13.0 补充决策取代**：采用 §10 的来源曝光
    契约——次要人物按 `IDENTITY_ONLY` / `PARTICIPANT_CONTEXT` 进入来源集合并由
    Manifest 记录曝光程度（13.1 实现）。13.0 数据集在 13.1 完成前按旧契约编写。
@@ -342,8 +344,8 @@ CJK 实际约 `len/1.5 ≈ 0.67·len` tokens，而估算为 `0.5·len`——**�
    输出、自动评估、人工复核四者分开保存，不写回事实层。
 5. **在线评估未实现**（13.4 范围）：真实模型对比必须由用户显式触发，固定
    Dataset / Scenario / ContextSnapshot / Prompt 版本后才可比较。
-6. J 场景的批量记录是**合成体积**（当前 J_NEAR 估算 21527 / 24000 ≈ 90%），
-   只用于验证预算行为，不代表真实数据分布。
+6. J 场景的批量记录是**合成体积**（13.1 带实体标记重新校准后 J_NEAR 估算
+   21524 / 24000 ≈ 90%；13.0 时为 21527），只用于验证预算行为，不代表真实数据分布。
 
 ## 12. 变更记录
 
@@ -351,3 +353,4 @@ CJK 实际约 `len/1.5 ≈ 0.67·len` tokens，而估算为 `0.5·len`——**�
 |---|---|
 | 13.0 | 建立评估框架、合成数据集（A–J / 17 Scenario）、指标注册表、离线 Runner、Token 估算保守化 |
 | 13.0 补充 | 来源曝光契约（Source Exposure Contract）纳入正式评估契约；`EXPOSURE_MANIFEST` 指标登记（N/A 待 13.1） |
+| 13.1 | 结构化结果契约 + 解析器；Context Entity Manifest 联动（标记 / source_ids / 持久化 / 数据集 required_sources）；`EXPOSURE_MANIFEST` 启用；可复现性改为掩码后逐字节比较 |

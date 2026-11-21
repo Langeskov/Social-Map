@@ -147,12 +147,25 @@ Dialog、Workspace 选择器、TopBar 状态提示。**未执行不得记为通�
 1. **真实 Windows DPI 人工验收未执行**（§6，产品负责人执行中）——因此本阶段结论为
    **「Phase 12 实现完成，发布验收待完成」，不标记 V1 Release Ready**。
 2. Windows CI 工作流按负责人决定**本轮不做**。
-3. 归档人物的 Relationship/Timeline 面板仍弹读拒绝（Service 存活守卫，超出 7.3 契约
-   范围；测试如实记录为已知缺口）。
-4. `AGENTS.md` 中的测试基线数字（1483/1478）已过时；因「不得擅自改写 Agent 指令体系」
-   未改动，**需产品负责人授权后更新**。
+3. ~~归档人物的 Relationship/Timeline 面板仍弹读拒绝~~ **Phase 12.5 已解决**：归档主体的
+   关系与时间线以只读历史视图展示（`include_deleted=True` 归档读取路径），不再弹拒绝提示；
+   组合行为见 [关系文档的归档状态矩阵](<relationships.md>)。
+4. ~~`AGENTS.md` 测试基线过时~~ **Phase 12.5 已解决**（负责人授权「版本控制说明」清理时
+   一并更新基线与阶段说明）。
 5. 跨 Workspace 全表扫描类查找（`_workspace_of` 等）仍是 O(n)（既有行为，未在本期改）。
 6. 离屏探针的字体度量限制（§5）。
+
+## 9b. Phase 12.5 — 归档只读一致性与验收收尾
+
+- **12.5.1 归档人物历史读取**：`RelationshipService.list_by_person` 增加只读归档路径
+  （`include_deleted=True` 可读归档主体，默认行为不变）；RelationshipPanel / Person
+  Timeline / Ego Network 对归档主体展示既有历史（时间线「显示已删除记录」开关继续过滤行），
+  不再弹 Service 拒绝提示；新增/状态/恢复/分析入口锁止。
+- **12.5.2 归档状态矩阵**：矩阵文档化于 [relationships.md](<relationships.md>)，组合测试
+  `test_archive_state_matrix_combinations` 等覆盖：归档人物、归档端点、已删除关系、
+  History 记录的读取/写入组合（审计删除保留可用，恢复与状态写入永不绕过端点归档）。
+- **12.5.3 文档修正**：README 旧 Settings 描述（「Settings 只读」失实）与 Phase 10 残留、
+  `AGENTS.md` 版本控制说明（分支/基线 Tag/无 remote/旧基线不可获取）与测试基线更新。
 
 ## 10. 结论
 

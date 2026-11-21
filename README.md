@@ -24,11 +24,11 @@
 - **Data Management（Settings）**：`[Run Integrity Check]` 只读审计（外键／workspace 一致性／悬空引用／媒体文件缺失与 sha256 不符／孤儿文件／Analysis 与 Memory 来源）、`[Create Backup]` 生成一致快照 + 媒体 + manifest、`[Verify Backup]` 在临时副本上校验并可被应用打开、`[Export Workspace]` 导出 JSON + 媒体（**默认不含分析原文与快照，导出不是备份**）。全部**手动触发**，没有云备份与自动上传。
 - 十一张正式业务表：workspace、person、person_alias、media、person_media、relationship、relationship_history、event、event_participant、evidence、evidence_media；外加可随时重建的搜索投影（`search_document` + FTS5）、5 张分析表（analysis_run 与 4 张来源关联表）与 `memory`。
 
-**没有 Sync / ChangeLog / Revision / MemoryRevision / Vision / OCR / RAG / 向量库或这些空表；分析层与记忆层都永不修改事实，也不会自动生成 Memory。** Settings 只读。程序不插入示例人物、图片、关系、事件或证据；Default Workspace 仅是系统元数据。
+**没有 Sync / ChangeLog / Revision / MemoryRevision / Vision / OCR / RAG / 向量库或这些空表；分析层与记忆层都永不修改事实，也不会自动生成 Memory。** Settings 的数据操作（审计／备份／校验／导出）全部手动触发，Workspace 管理遵循 Service 规则（当前 Workspace 不可归档、至少保留一个）；程序不插入示例人物、图片、关系、事件或证据；Default Workspace 仅是系统元数据。
 
 ## 安装与启动
 
-Python >=3.11，依赖约束见 [pyproject.toml](<pyproject.toml>)。Phase 10 未新增或升级依赖（备份用标准库 sqlite3 在线备份 API）。
+Python >=3.11，依赖约束见 [pyproject.toml](<pyproject.toml>)。Phase 10–12 未新增或升级依赖（备份用标准库 sqlite3 在线备份 API）。
 
 ```powershell
 conda create -n relationship-intelligence python=3.12

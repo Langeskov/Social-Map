@@ -1,13 +1,19 @@
 # Social Map / Relationship Intelligence System — 长期项目规则
 
 本地优先（local-first）的人际关系情报工作台：PySide6 桌面应用，SQLite + SQLAlchemy + Alembic，
-单用户、不联网、不同步、无账号。仓库为本地 git 工作区，**不上传**。
+单用户、不联网、不同步、无账号。仓库为本地 git 工作区，**不上传**：
+
+- 无 remote、不推送、不合并无关历史；开发在 `phase-12-investigation-console` 分支，
+  基线 Tag 为 `phase-11-baseline`（`8bb12ad`，Phase 11 验收记录）。
+- 旧远端基线 `f11bc31` 不可获取（本地无此对象），不得虚构与它的连续历史。
 
 ## 当前阶段
 
-Phase 1–10 已完成（功能、投影层、分析层、用户确认 Memory、稳定化）。
-**Phase 11（V1 UI/UX / Interaction Hardening）已实现并验收**，见
+Phase 1–11 已完成（功能、投影层、分析层、用户确认 Memory、稳定化、V1 UI/UX），见
 [Phase 11 验收记录](<docs/phase11-verification.md>)。
+**Phase 12（Person Investigation Console）实现完成、发布验收待完成**（真实 Windows DPI
+人工验收由用户执行），见 [Phase 12 验收记录](<docs/phase12-verification.md>) 与
+[Phase 12 设计](<docs/phase12-design.md>)。
 
 下一步**不会自动开始** Revision / ChangeLog / Sync；任何新阶段都必须由用户明确指派。
 
@@ -62,7 +68,7 @@ SQLAlchemy Repository Adapter → SQLite / Local MediaStore
 ```
 
 - **必须带 `-s`**：用户级 PySide6 与 conda Qt 会冲突，导致 `DLL load failed`。
-- 当前基线：**1483 collected / 1478 passed / 5 environment-skipped / 0 failed**。
+- 当前基线：**1515 collected / 1510 passed / 5 environment-skipped / 0 failed**（Phase 12 末）。
 - 5 项 skipped 是 `tests/storage/test_media_store.py` 的
   「OS does not grant temporary-test symlink creation」（Windows symlink 权限）。
   **不得删除、不得弱化、不得描述为通过。**
@@ -74,5 +80,5 @@ SQLAlchemy Repository Adapter → SQLite / Local MediaStore
 - `docs/phase3..phase10-verification.md` 是**历史记录，不修改**，也不得因文档更新改动其测试数字。
 - 现行文档：`README.md`、`docs/architecture.md`、`docs/database.md`、`docs/projection.md`、
   `docs/analysis.md`、`docs/memory.md`、`docs/operations.md`、`docs/relationships.md`、
-  `docs/events.md`、`docs/evidence.md`、`docs/media.md`。
+  `docs/events.md`、`docs/evidence.md`、`docs/media.md`、`docs/phase12-design.md`。
 - 每个阶段的验收记录单独成文件，写清 collected / passed / skipped / failed 与实际未完成项。

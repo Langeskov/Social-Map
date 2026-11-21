@@ -8,10 +8,13 @@ data can never sneak into the evaluation corpus by accident.
 """
 import hashlib
 import json
+import re
 from datetime import date, datetime
 from pathlib import Path
+from uuid import UUID
 
 from app.domain.entities.analysis import ANALYSIS_TYPE_FOR_TARGET
+from app.domain.entities.reference_validation import CITABLE_TYPES, STATUSES as REFERENCE_STATUSES
 from app.evaluation.models import (ANALYSIS_TYPES, BULK_LIMIT, DATASET_VERSION,
                                    EXPECTED_ERROR_CONTEXT_LIMIT, METRIC_DEFINITIONS,
                                    SCHEMA_VERSION, SOURCE_TYPES, TIME_SCOPES,
@@ -20,13 +23,15 @@ from app.evaluation.models import (ANALYSIS_TYPES, BULK_LIMIT, DATASET_VERSION,
                                    DatasetIssue, EvaluationDataset,
                                    EvaluationScenario, EventSpec, EvidenceSpec,
                                    ExpectedContext, ExpectedFact,
-                                   ExpectedUncertainty, ForbiddenClaim,
-                                   FixtureSpec, HistorySpec, HumanReviewItem,
-                                   MediaSpec, MemorySpec, ParticipantSpec,
-                                   PersonSpec, RelationshipSpec, RequestSpec,
-                                   SourceRef)
+                                   ExpectedReferenceOutcome, ExpectedUncertainty,
+                                   ForbiddenClaim, FixtureSpec, HistorySpec,
+                                   HumanReviewItem, MediaSpec, MemorySpec,
+                                   ParticipantSpec, PersonSpec, RelationshipSpec,
+                                   RequestSpec, SampleOutput, SourceRef)
 
 MANIFEST_NAME = "dataset.json"
+#: ``<<TYPE:key>>`` placeholders in sample outputs, resolved at run time.
+PLACEHOLDER_PATTERN = re.compile(r"<<(PERSON|RELATIONSHIP|EVENT|EVIDENCE):([^>]+)>>")
 
 
 # ------------------------------------------------------------------ small tools
@@ -489,6 +494,50 @@ def _parse_expected_context(raw, path, issues):
                            expected_error=expected_error)
 
 
+def _parse_sample_output(raw, path, issues):
+    if raw is None:
+        return None
+    data = _mapping(raw, path, issues)
+    if data is None:
+        return None
+    _check_keys(data, {"label", "content", "expected_references",
+                       "expected_missing_fact_references"}, path, issues)
+    expected = []
+    for index, value in enumerate(_sequence(data, "expected_references", path, issues)):
+        item_path = f"{path}.expected_references[{index}]"
+        entry = _mapping(value, item_path, issues)
+        if entry is None:
+            continue
+        _check_keys(entry, {"ref_type", "expected_status", "source", "literal_id"},
+                    item_path, issues)
+        ref_type = _enum(entry, "ref_type", item_path, issues, allowed=CITABLE_TYPES)
+        expected_status = _enum(entry, "expected_status", item_path, issues,
+                                allowed=REFERENCE_STATUSES)
+        source = None
+        literal_id = None
+        if "source" in entry:
+            source = _ref(entry.get("source"), f"{item_path}.source", issues, cls=SourceRef)
+        elif "literal_id" in entry:
+            raw_literal = entry.get("literal_id")
+            try:
+                literal_id = UUID(str(raw_literal))
+            except (ValueError, TypeError):
+                _issue(issues, f"{item_path}.literal_id", "必须是合法 UUID 字符串。")
+        else:
+            _issue(issues, item_path, "必须提供 source 或 literal_id。")
+        if ref_type and expected_status and (source or literal_id):
+            expected.append(ExpectedReferenceOutcome(
+                ref_type=ref_type, expected_status=expected_status,
+                source=source, literal_id=literal_id))
+    return SampleOutput(
+        label=_text(data, "label", path, issues, required=False, default="样例输出")
+        or "样例输出",
+        content=_text(data, "content", path, issues),
+        expected_references=tuple(expected),
+        expected_missing_fact_references=_integer(
+            data, "expected_missing_fact_references", path, issues, default=0, minimum=0))
+
+
 def _parse_scenario(raw, path, issues):
     data = _mapping(raw, path, issues)
     if data is None:
@@ -497,7 +546,8 @@ def _parse_scenario(raw, path, issues):
                        "scenario_version", "title", "description", "fixture",
                        "request", "expected_facts", "required_sources",
                        "forbidden_claims", "expected_uncertainties", "human_review",
-                       "evaluation_dimensions", "expected_context", "notes"}, path, issues)
+                       "evaluation_dimensions", "expected_context", "sample_output",
+                       "notes"}, path, issues)
     _schema_version(data, path, issues)
 
     def ref_list(key, cls):
@@ -572,6 +622,8 @@ def _parse_scenario(raw, path, issues):
         evaluation_dimensions=_strings(data, "evaluation_dimensions", path, issues),
         expected_context=_parse_expected_context(data.get("expected_context"),
                                                  f"{path}.expected_context", issues),
+        sample_output=_parse_sample_output(data.get("sample_output"),
+                                           f"{path}.sample_output", issues),
         notes=_text(data, "notes", path, issues, required=False),
         source_path=path)
 
@@ -719,6 +771,27 @@ def _validate_scenario(scenario, fixture, issues):
         if dimension not in METRIC_DEFINITIONS:
             _issue(issues, f"{path}.evaluation_dimensions",
                    f"未知指标 {dimension!r}；必须来自指标注册表。")
+    sample = scenario.sample_output
+    if sample is not None:
+        for match in PLACEHOLDER_PATTERN.finditer(sample.content):
+            ref_type, key = match.group(1), match.group(2)
+            if not known(ref_type, key):
+                _issue(issues, f"{path}.sample_output.content",
+                       f"占位符 <<{ref_type}:{key}>> 引用的来源不在 fixture 中。")
+        for expected in sample.expected_references:
+            if expected.source is not None:
+                if not known(expected.source.type, expected.source.key):
+                    _issue(issues, f"{path}.sample_output.expected_references",
+                           f"来源 {expected.source.token!r} 不在 fixture 中。")
+                    continue
+                token = f"<<{expected.source.type}:{expected.source.key}>>"
+                if token not in sample.content:
+                    _issue(issues, f"{path}.sample_output.expected_references",
+                           f"样例内容没有出现预期引用 {token!r}。")
+            elif expected.literal_id is not None:
+                if str(expected.literal_id) not in sample.content:
+                    _issue(issues, f"{path}.sample_output.expected_references",
+                           f"样例内容没有出现预期引用 {expected.literal_id}。")
 
 
 # ------------------------------------------------------------------- public API

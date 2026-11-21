@@ -5,6 +5,7 @@ from app.repositories.event_interfaces import EventParticipantRepository, EventR
 from app.repositories.evidence_interfaces import EvidenceMediaRepository, EvidenceRepository
 from app.repositories.interfaces import (MediaRepository, PersonAliasRepository, PersonRepository,
                                          WorkspaceRepository)
+from app.repositories.reference_interfaces import ReferenceLookupRepository
 from app.repositories.relationship_interfaces import (RelationshipHistoryRepository,
                                                       RelationshipRepository)
 from app.repositories.memory_interfaces import MemoryRepository
@@ -25,6 +26,7 @@ class AnalysisRepositories:
     runs: AnalysisRunRepository
     sources: AnalysisSourceRepository
     memories: MemoryRepository
+    lookup: ReferenceLookupRepository
 
 
 def sql_analysis_repositories(session) -> AnalysisRepositories:
@@ -34,6 +36,7 @@ def sql_analysis_repositories(session) -> AnalysisRepositories:
     from app.storage.evidence_repositories import (SQLEvidenceMediaRepository,
                                                    SQLEvidenceRepository)
     from app.storage.memory_repositories import SQLMemoryRepository
+    from app.storage.reference_repositories import SQLReferenceLookupRepository
     from app.storage.repositories import (SQLMediaRepository, SQLPersonAliasRepository,
                                           SQLPersonRepository, SQLWorkspaceRepository)
     from app.storage.relationship_repositories import (SQLRelationshipHistoryRepository,
@@ -44,4 +47,5 @@ def sql_analysis_repositories(session) -> AnalysisRepositories:
                                 SQLEventParticipantRepository(session), SQLEvidenceRepository(session),
                                 SQLEvidenceMediaRepository(session), SQLMediaRepository(session),
                                 SQLAnalysisRunRepository(session), SQLAnalysisSourceRepository(session),
-                                SQLMemoryRepository(session))
+                                SQLMemoryRepository(session),
+                                SQLReferenceLookupRepository(session))

@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (QComboBox, QFormLayout, QGroupBox, QHBoxLayout, Q
     QVBoxLayout, QWidget)
 
 from app.domain.errors import DomainError
+from app.domain.entities.reference_validation import VALID_FULL, VALID_LIMITED, is_valid
 from app.services.errors import DatabaseError
 from app.services.prompt import split_result_sections
 from app.ui.analysis_dialog import (MEMORY_KINDS, RESULT_SECTIONS, SOURCE_KINDS, SOURCE_LABELS,
@@ -52,9 +53,10 @@ TARGET_FILTERS = ((FILTER_ALL, None),) + tuple((f"{key} · {label}", key)
                                                for key, label in TARGET_LABELS.items())
 HISTORY_HEADERS = ["创建时间", "目标类型", "目标", "分析类型", "Provider", "模型", "状态", "耗时"]
 #: Candidate references: entity type, target, the service's verdict and its reason.
-CANDIDATE_HEADERS = ["实体类型", "候选对象", "是否可作为 Memory 引用", "Service 判定"]
-CANDIDATE_ACCEPTED = "已被 Service 接受（可跳转）"
-CANDIDATE_REJECTED = "候选无效（不属于本次来源，已拒绝）"
+CANDIDATE_HEADERS = ["实体类型", "候选对象", "验证状态", "Service 判定（状态 · 原因）"]
+CANDIDATE_VALID_FULL = "有效 · 完整曝光（可跳转）"
+CANDIDATE_VALID_LIMITED = "有效 · 有限曝光（可跳转，仅能引用所示信息）"
+CANDIDATE_REJECTED = "无效（已拒绝，不可跳转）"
 
 
 def source_label_text(kind) -> str:
@@ -575,11 +577,13 @@ class AnalysisPage(ContextPage, QWidget):
         return list(service.candidate_references(view.run.workspace_id, view.run.id))
 
     def show_candidates(self, view):
-        """Candidates from the model output, always labelled as candidates.
+        """Verified citations from the model output, shown as candidates.
 
-        Only a reference the Service accepted may be activated here; a rejected or
-        non-matching candidate is displayed as invalid and is never writable. This
-        method never writes anything, including never creating a Memory.
+        Every row carries the shared Phase 13.2 status and reason. Only
+        VALID_FULL / VALID_LIMITED rows may be activated; a limited-exposure
+        citation is labelled as such (it only covers the information the model
+        actually saw) and a rejected citation is never treated as support.
+        This method never writes anything, including never creating a Memory.
         """
         candidates = self.run_operation(lambda: self.candidate_references(view))
         self.candidates.setRowCount(0)
@@ -587,28 +591,34 @@ class AnalysisPage(ContextPage, QWidget):
             self.candidate_note.setText(
                 "Memory 服务尚未装配：不显示候选引用（本页不会据此写入任何数据）。")
             return []
-        accepted = rejected = 0
+        full = limited = rejected = 0
         for candidate in candidates:
-            is_accepted = bool(getattr(candidate, "accepted", False))
-            row = self.candidates.rowCount()
-            self.candidates.insertRow(row)
-            if is_accepted:
-                accepted += 1
-                verdict = CANDIDATE_ACCEPTED
+            status = str(getattr(candidate, "status", "") or "")
+            valid = is_valid(status)
+            if status == VALID_FULL:
+                full += 1
+                verdict = CANDIDATE_VALID_FULL
+            elif status == VALID_LIMITED:
+                limited += 1
+                verdict = CANDIDATE_VALID_LIMITED
             else:
                 rejected += 1
                 verdict = CANDIDATE_REJECTED
+            reason = str(getattr(candidate, "reason", "") or "—")
+            row = self.candidates.rowCount()
+            self.candidates.insertRow(row)
             values = [str(getattr(candidate, "entity_type", "") or "—"),
                       self.candidate_target_text(candidate), verdict,
-                      str(getattr(candidate, "reason", "") or "—")]
+                      f"{status} · {reason}" if status else reason]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 if column == 1:
-                    item.setData(ROLE, candidate if is_accepted else None)
+                    item.setData(ROLE, candidate if valid else None)
                 self.candidates.setItem(row, column, item)
         self.candidate_note.setText(
-            f"候选引用 {len(candidates)} 条（被接受 {accepted} · 无效 {rejected}）。"
-            "候选来自模型输出，只是候选：只有被 Service 接受的那些能跳转，"
+            f"候选引用 {len(candidates)} 条（有效完整 {full} · 有效有限 {limited} · "
+            f"无效 {rejected}）。候选来自模型输出；只有验证有效的引用能跳转，"
+            "有限曝光只代表看到了部分信息，不代表结论有依据；"
             "本页不会自动创建 Memory，也不会修改任何事实。")
         return candidates
 
@@ -631,7 +641,7 @@ class AnalysisPage(ContextPage, QWidget):
         return f"{name} · {short}" if name else short
 
     def open_candidate(self):
-        """Double-click on an accepted candidate only; a rejected row has no target."""
+        """Double-click on a verified candidate only; a rejected row has no target."""
         row = self.candidates.currentRow()
         item = self.candidates.item(row, 1) if row >= 0 else None
         candidate = item.data(ROLE) if item is not None else None
@@ -686,7 +696,12 @@ class AnalysisPage(ContextPage, QWidget):
         view = self.current_view
         if view is None:
             return None
-        dialog = AnalysisResultDialog(view, parent=self)
+        checks = ()
+        if view.run.status == "SUCCEEDED":
+            checks = self.run_operation(
+                lambda: self.services.analysis.reference_checks(view.run.workspace_id,
+                                                               view.run.id)) or ()
+        dialog = AnalysisResultDialog(view, reference_checks=checks, parent=self)
         track_dialog(self, dialog)
         dialog.show()
         return dialog
@@ -849,6 +864,7 @@ class AnalysisPage(ContextPage, QWidget):
         return self.current_view
 
 
-__all__ = ["AnalysisPage", "CANDIDATE_ACCEPTED", "CANDIDATE_HEADERS", "CANDIDATE_REJECTED",
+__all__ = ["AnalysisPage", "CANDIDATE_HEADERS", "CANDIDATE_REJECTED",
+           "CANDIDATE_VALID_FULL", "CANDIDATE_VALID_LIMITED",
            "FILTER_ALL", "HISTORY_HEADERS", "MEMORY_KINDS", "RESULT_SECTIONS", "SOURCE_KINDS",
            "SOURCE_LABELS", "TARGET_FILTERS", "run_operation", "source_label_text", "time_text"]

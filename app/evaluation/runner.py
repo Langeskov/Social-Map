@@ -14,10 +14,10 @@ result declares its volatile fields explicitly.
 import hashlib
 import re
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from app.domain.validation import utc_now
-from app.evaluation.dataset import scenario_digest
+from app.evaluation.dataset import PLACEHOLDER_PATTERN, scenario_digest
 from app.evaluation.fixture import materialize_fixture
 from app.evaluation.models import (DETERMINISTIC, EXPECTED_ERROR_CONTEXT_LIMIT,
                                    FAIL, HUMAN, HUMAN_ASSISTED, METRIC_DEFINITIONS,
@@ -28,10 +28,12 @@ from app.evaluation.models import (DETERMINISTIC, EXPECTED_ERROR_CONTEXT_LIMIT,
                                    FixtureSpec, MetricResult,
                                    ScenarioEvaluationResult)
 from app.services.analysis_repositories import sql_analysis_repositories
+from app.services.analysis_result_parser import parse_analysis_result
 from app.services.context import AnalysisRequest, ContextBuilder
 from app.services.entity_manifest import (CONTENT_INCLUDED, EVIDENCE,
                                           entity_marker, unmarked_entity_ids)
 from app.services.prompt import PromptBuilder
+from app.services.reference_verification import ReferenceVerifier
 from app.services.unit_of_work import transaction
 
 LIMIT_ERROR_MARKER = "Selected context exceeds model context limit."
@@ -124,6 +126,13 @@ def run_scenario(scenario: EvaluationScenario, dataset: EvaluationDataset, *,
         metrics.append(_context_expectations(scenario, snapshot, materialized, fixture,
                                              scenario_path))
         metrics.append(_exposure_manifest(scenario, snapshot, scenario_path))
+        grounding = _reference_grounding(scenario, snapshot, materialized, scenario_path)
+        if grounding is not None:
+            metrics.append(grounding)
+        elif "REFERENCE_GROUNDING" in scenario.evaluation_dimensions:
+            metrics.append(MetricResult(
+                "REFERENCE_GROUNDING", NOT_APPLICABLE, DETERMINISTIC,
+                "场景未提供样例输出，离线运行没有模型回答可验证。", (scenario_path,)))
         metrics.extend(_model_output_na(scenario))
         return ScenarioEvaluationResult(
             scenario_id=scenario.scenario_id, scenario_version=scenario.scenario_version,
@@ -214,6 +223,10 @@ def _refusal_result(scenario, scenario_path, metrics, exc):
         metrics.append(_fail("CONTEXT_EXPECTATIONS", reason, (scenario_path,)))
         metrics.extend(_not_applicable_context_checks("上下文构建失败，无快照可核对。",
                                                        include_expectations=False))
+    if scenario.sample_output is not None:
+        metrics.append(MetricResult(
+            "REFERENCE_GROUNDING", NOT_APPLICABLE, DETERMINISTIC,
+            "上下文未构建，无法验证样例引用。", (scenario_path,)))
     metrics.extend(_model_output_na(scenario))
     outcome = OUTCOME_REFUSED_LIMIT if is_limit else OUTCOME_ERROR
     return ScenarioEvaluationResult(
@@ -411,6 +424,56 @@ def _not_applicable_context_checks(reason: str, *, include_expectations=True) ->
         metric_ids.append("CONTEXT_EXPECTATIONS")
     return [MetricResult(metric_id, NOT_APPLICABLE, DETERMINISTIC, reason)
             for metric_id in metric_ids]
+
+
+def _reference_grounding(scenario, snapshot, materialized, scenario_path):
+    """Verify the sample answer's citations with the shared Phase 13.2 verifier."""
+    sample = scenario.sample_output
+    if sample is None:
+        return None
+    content = PLACEHOLDER_PATTERN.sub(
+        lambda match: str(materialized.resolve(match.group(1), match.group(2))),
+        sample.content)
+    parsed = parse_analysis_result(content)
+    recorded = {kind: frozenset(values) for kind, values in snapshot.source_ids().items()}
+    with transaction(materialized.runtime.sessions) as session:
+        repositories = sql_analysis_repositories(session)
+        verifier = ReferenceVerifier(
+            repositories, workspace_id=UUID(snapshot.scope["workspace_id"]),
+            manifest=snapshot.entity_manifest, recorded=recorded)
+        checks = verifier.verify_parsed_result(parsed)
+    found = {}
+    for check in checks:
+        reference = check.reference
+        key = (reference.entity_type,
+               str(reference.entity_id) if reference.entity_id else None)
+        found.setdefault(key, reference.status)
+    problems = []
+    for expected in sample.expected_references:
+        if expected.source is not None:
+            expected_id = str(materialized.resolve(expected.source.type, expected.source.key))
+        else:
+            expected_id = str(expected.literal_id)
+        actual = found.get((expected.ref_type, expected_id))
+        if actual is None:
+            problems.append(f"样例缺少引用 {expected.ref_type}:{expected_id}")
+        elif actual != expected.expected_status:
+            problems.append(f"{expected.ref_type}:{expected_id} "
+                            f"期望 {expected.expected_status}，实际 {actual}")
+    missing = sum(1 for entry in parsed.facts if not entry.references)
+    if missing != sample.expected_missing_fact_references:
+        problems.append(f"FACT 缺少引用 {missing} 条，"
+                        f"期望 {sample.expected_missing_fact_references} 条")
+    details = {"label": sample.label,
+               "references": {f"{kind}:{identifier}": status
+                              for (kind, identifier), status in found.items()},
+               "missing_fact_references": missing}
+    if problems:
+        return _fail("REFERENCE_GROUNDING", "；".join(problems), (scenario_path,), details)
+    return _pass("REFERENCE_GROUNDING",
+                 f"样例引用 {len(found)} 条与声明一致（FACT 缺引用 {missing} 条）；"
+                 "引用合法不等于语义有据。",
+                 (scenario_path,), details)
 
 
 def _exposure_manifest(scenario, snapshot, scenario_path) -> MetricResult:

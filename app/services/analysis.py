@@ -123,6 +123,21 @@ class AnalysisService:
             builder = ContextBuilder(self._repositories(session), clock=self._clock)
             return builder.build(request, analysis_run_id=analysis_run_id)
 
+    def reference_checks(self, workspace_id, run_id):
+        """Read-only verification of every structural reference in one run's answer.
+
+        Returns ``EntryReferenceCheck`` rows carrying the shared Phase 13.2 status
+        and reason. Nothing is written and no status is ever guessed by the UI.
+        """
+        from app.services.analysis_result_parser import parse_analysis_result
+        from app.services.reference_verification import ReferenceVerifier
+        with transaction(self._sessions) as session:
+            repositories = self._repositories(session)
+            view = self._require(repositories, workspace_id, run_id, with_sources=True)
+            parsed = parse_analysis_result(view.run.result or "")
+            verifier = ReferenceVerifier.for_run(repositories, view.run, view.sources)
+            return verifier.verify_parsed_result(parsed)
+
     # ------------------------------------------------------------------- writes
     def create_run(self, request: AnalysisRequest, *, provider_name: str | None = None,
                    cancel=None) -> AnalysisRun:

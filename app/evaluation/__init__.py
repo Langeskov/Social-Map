@@ -14,7 +14,8 @@ from app.evaluation.models import (DATASET_VERSION, FAIL, METRIC_DEFINITIONS,
                                    NOT_APPLICABLE, PASS, SCHEMA_VERSION,
                                    DatasetError, DatasetIssue, EvaluationDataset,
                                    EvaluationRunResult, EvaluationScenario,
-                                   MetricResult, ScenarioEvaluationResult)
+                                   ExpectedReferenceOutcome, MetricResult,
+                                   SampleOutput, ScenarioEvaluationResult)
 from app.evaluation.report import render_markdown, write_report
 from app.evaluation.runner import mask_volatile_text, run_dataset, run_scenario
 
@@ -22,7 +23,8 @@ __all__ = [
     "DATASET_VERSION", "SCHEMA_VERSION", "METRIC_DEFINITIONS",
     "PASS", "FAIL", "NOT_APPLICABLE",
     "DatasetError", "DatasetIssue", "EvaluationDataset", "EvaluationRunResult",
-    "EvaluationScenario", "MetricResult", "ScenarioEvaluationResult",
+    "EvaluationScenario", "ExpectedReferenceOutcome", "MetricResult", "SampleOutput",
+    "ScenarioEvaluationResult",
     "load_dataset", "scenario_digest", "run_dataset", "run_scenario",
     "render_markdown", "write_report", "mask_volatile_text",
 ]

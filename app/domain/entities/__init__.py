@@ -14,11 +14,25 @@ from app.domain.entities.evidence import Evidence
 from app.domain.entities.evidence_media import EvidenceMedia
 from app.domain.entities.analysis import (ANALYSIS_TYPE_FOR_TARGET, ANALYSIS_TYPES, STATUSES,
                                           TARGET_TYPES, AnalysisRun, AnalysisSource, AnalysisSourceSet)
-from app.domain.entities.memory import (CONTENT_MAX_LENGTH, KINDS, SOURCE_TYPES, CandidateReference,
-                                        Memory)
+from app.domain.entities.analysis_result import (AnalysisEntry, AnalysisReference,
+                                                 AnalysisResult)
+from app.domain.entities.memory import CONTENT_MAX_LENGTH, KINDS, SOURCE_TYPES, Memory
+from app.domain.entities.reference_validation import (CITABLE_TYPES, DELETED_SOURCE,
+                                                      INVALID_FORMAT, NOT_IN_RUN,
+                                                      SOURCE_NOT_EXPOSED,
+                                                      TYPE_MISMATCH, UNKNOWN_SOURCE,
+                                                      VALID_FULL, VALID_LIMITED,
+                                                      WORKSPACE_MISMATCH,
+                                                      EntryReferenceCheck,
+                                                      ValidatedReference, is_valid)
 
 __all__ = ["Workspace", "Person", "PersonAlias", "Media", "PersonMedia", "Relationship", "RelationshipHistory",
            "Event", "EventParticipant", "Evidence", "EvidenceMedia",
            "AnalysisRun", "AnalysisSource", "AnalysisSourceSet",
            "ANALYSIS_TYPES", "TARGET_TYPES", "STATUSES", "ANALYSIS_TYPE_FOR_TARGET",
-           "Memory", "CandidateReference", "KINDS", "SOURCE_TYPES", "CONTENT_MAX_LENGTH"]
+           "AnalysisResult", "AnalysisEntry", "AnalysisReference",
+           "ValidatedReference", "EntryReferenceCheck", "CITABLE_TYPES", "is_valid",
+           "VALID_FULL", "VALID_LIMITED", "INVALID_FORMAT", "UNKNOWN_SOURCE",
+           "NOT_IN_RUN", "WORKSPACE_MISMATCH", "TYPE_MISMATCH", "DELETED_SOURCE",
+           "SOURCE_NOT_EXPOSED",
+           "Memory", "KINDS", "SOURCE_TYPES", "CONTENT_MAX_LENGTH"]

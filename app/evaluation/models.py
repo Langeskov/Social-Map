@@ -14,12 +14,13 @@ the network. See docs/phase13-evaluation.md for the dataset specification.
 """
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from uuid import UUID
 
 # --------------------------------------------------------------------- versions
 #: Version of the dataset/scenario JSON schema this loader understands.
 SCHEMA_VERSION = "1"
 #: Version of the bundled synthetic dataset content.
-DATASET_VERSION = "1.0"
+DATASET_VERSION = "1.1"
 
 # ------------------------------------------------------------------ source kinds
 #: Fact types an AnalysisSource may cite (kept identical to the analysis layer).
@@ -172,6 +173,30 @@ class RequestSpec:
 
 
 @dataclass(frozen=True)
+class ExpectedReferenceOutcome:
+    """One reference a sample model answer is expected to contain, and its status."""
+
+    ref_type: str
+    expected_status: str
+    source: SourceRef | None = None     # fixture key resolved to a real UUID
+    literal_id: UUID | None = None      # explicit UUID (e.g. a fabricated one)
+
+
+@dataclass(frozen=True)
+class SampleOutput:
+    """A fixed synthetic model answer used for offline reference-grounding checks.
+
+    ``content`` may embed ``<<TYPE:key>>`` placeholders that the runner replaces
+    with the materialized UUIDs before parsing, so expectations stay readable.
+    """
+
+    label: str
+    content: str
+    expected_references: tuple[ExpectedReferenceOutcome, ...] = ()
+    expected_missing_fact_references: int = 0
+
+
+@dataclass(frozen=True)
 class ExpectedContext:
     """Deterministic expectations about the *input* the model will see.
 
@@ -203,6 +228,7 @@ class EvaluationScenario:
     human_review: tuple[HumanReviewItem, ...]
     evaluation_dimensions: tuple[str, ...]
     expected_context: ExpectedContext
+    sample_output: SampleOutput | None = None
     notes: str = ""
     source_path: str = ""
 
@@ -573,6 +599,14 @@ METRIC_DEFINITIONS: dict[str, MetricDefinition] = {
             "13.1 起：核对 Manifest 条目与渲染标记 [TYPE:<uuid>]、source_ids()、analysis_*_source，"
             "并检查 Evidence METADATA_ONLY / PERSON IDENTITY_ONLY 等等级不被夸大。",
             "上下文构建 + 来源集", False, False, True,
+            ""),
+        MetricDefinition(
+            "REFERENCE_GROUNDING", "Reference Grounding", "Deterministic",
+            "固定样例回答中的每条结构化引用是否被验证为预期状态（真实 / 有限 / 未知 / "
+            "跨 Workspace / 类型错误 / 未曝光），以及 FACT 条目是否缺少引用。",
+            "13.2 起：解析样例输出 → 共享 ReferenceVerifier 逐条验证 → 与场景声明的"
+            " expected_references 比对；引用合法性不等于语义有据。",
+            "样例模型输出 vs 来源集合", True, False, True,
             ""),
     )
 }

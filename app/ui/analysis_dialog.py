@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 
 from app.domain.entities.analysis_result import (LEGACY_MARKDOWN, SECTION_KEYS,
                                                 STRUCTURED_STATUSES)
+from app.domain.entities.reference_validation import VALID_FULL, VALID_LIMITED, is_valid
 from app.domain.errors import DomainError
 from app.domain.validation import normalize_datetime
 from app.services.analysis_result_parser import parse_analysis_result
@@ -82,15 +83,44 @@ def parsed_result(run):
     return parse_analysis_result(getattr(run, "result", None) or "")
 
 
-def display_sections(parsed):
+def _reference_lines(references) -> list:
+    lines = []
+    for item in references:
+        reason = f"（{item.reason}）" if item.reason else ""
+        lines.append(f"  ↳ 引用：{item.entity_type} {item.entity_id} · {item.status}{reason}")
+    return lines
+
+
+def display_sections(parsed, reference_checks=None):
     """``key -> readable text`` for the result dialog.
 
-    Structured answers render parsed entries (references marked as unvalidated);
-    legacy answers keep the historic four-heading rendering exactly; anything
-    else is shown as raw text in the "other" section.
+    Structured answers render parsed entries; when the Service provided verified
+    references each citation is annotated with its Phase 13.2 status (and a
+    limited citation is marked as covering only the exposed information), while
+    without checks the citation stays explicitly unvalidated. Legacy answers keep
+    the historic four-heading rendering exactly.
     """
     if parsed.parse_status in STRUCTURED_STATUSES:
-        sections = {key: parsed.display_text(key) for key in SECTION_KEYS}
+        checks = {}
+        for check in reference_checks or ():
+            checks.setdefault((check.section, check.entry_index), []).append(check.reference)
+        sections = {}
+        for key in SECTION_KEYS:
+            blocks = []
+            for index, entry in enumerate(parsed.section(key)):
+                lines = [entry.content]
+                references = checks.get((key, index))
+                if references:
+                    lines.extend(_reference_lines(references))
+                elif entry.references:
+                    lines.append("  ↳ 引用（未校验）：" + "、".join(
+                        f"{item.entity_type} {item.entity_id}" for item in entry.references))
+                if entry.confidence_description:
+                    lines.append(f"  ↳ 不确定说明：{entry.confidence_description}")
+                if entry.notes:
+                    lines.append(f"  ↳ 备注：{entry.notes}")
+                blocks.append("\n".join(lines))
+            sections[key] = "\n\n".join(blocks)
         sections["other"] = parsed.unparsed_content
         return sections
     if parsed.parse_status == LEGACY_MARKDOWN:
@@ -98,6 +128,17 @@ def display_sections(parsed):
     sections = {key: "" for key in RESULT_KEYS}
     sections["other"] = parsed.raw_text
     return sections
+
+
+def reference_summary(checks) -> str:
+    """Counts of verified citations by class (full / limited / rejected)."""
+    checks = tuple(checks or ())
+    if not checks:
+        return "无结构化引用"
+    full = sum(1 for item in checks if item.reference.status == VALID_FULL)
+    limited = sum(1 for item in checks if item.reference.status == VALID_LIMITED)
+    rejected = len(checks) - full - limited
+    return f"{len(checks)} 条（完整 {full} · 有限 {limited} · 无效 {rejected}）"
 
 
 def result_section_text(run, key) -> str:
@@ -984,21 +1025,22 @@ class AnalysisOptionsDialog(QDialog):
 # -------------------------------------------------------------------- results UI
 
 class AnalysisResultDialog(QDialog):
-    """Read-only display of one finished run: parsed sections, raw output, snapshot."""
+    """Read-only display of one finished run: verified sections, raw output, snapshot."""
 
-    def __init__(self, view, *, parent=None):
+    def __init__(self, view, *, reference_checks=None, parent=None):
         super().__init__(parent)
         self.view = view
         self.run = view.run
         self._dialogs = []
+        self.reference_checks = tuple(reference_checks or ())
         self.parsed = parsed_result(self.run)
-        self.sections = display_sections(self.parsed)
+        self.sections = display_sections(self.parsed, self.reference_checks)
         self.setWindowTitle("分析结果 · " + self.run.analysis_type)
         self.resize(1000, 760)
         layout = QVBoxLayout(self)
         meta = QFormLayout()
         self.fields = {}
-        for key, label, value in self.metadata_values(self.run):
+        for key, label, value in self.metadata_values(self.run, self.reference_checks):
             self.fields[key] = plain_label(value)
             meta.addRow(label, self.fields[key])
         layout.addLayout(meta)
@@ -1053,7 +1095,7 @@ class AnalysisResultDialog(QDialog):
         layout.addLayout(rows)
 
     @staticmethod
-    def metadata_values(run):
+    def metadata_values(run, reference_checks=()):
         try:
             scope = json.loads(run.scope)
         except (ValueError, TypeError):
@@ -1066,6 +1108,7 @@ class AnalysisResultDialog(QDialog):
                 ("模型", "模型", run.model_name),
                 ("状态", "状态", run.status),
                 ("解析状态", "解析状态", parsed.parse_status),
+                ("引用验证", "引用验证", reference_summary(reference_checks)),
                 ("创建时间", "创建时间（本地时区）", utc_text(run.created_at)),
                 ("完成时间", "完成时间（本地时区）", utc_text(run.completed_at)),
                 ("耗时", "耗时", duration_text(run.duration_ms)),
@@ -1360,7 +1403,10 @@ def show_run_result(services, workspace_id, run_id, *, parent=None, dialog=None)
         return None
     def load():
         view = analysis.get(workspace_id, run_id)
-        result = AnalysisResultDialog(view, parent=parent)
+        checks = ()
+        if view.run.status == "SUCCEEDED":
+            checks = analysis.reference_checks(workspace_id, run_id) or ()
+        result = AnalysisResultDialog(view, reference_checks=checks, parent=parent)
         if dialog is not None:
             dialog._dialogs.append(result)
             result.finished.connect(
@@ -1379,6 +1425,6 @@ __all__ = ["ANALYZE_LABELS", "AnalysisOptionsDialog", "AnalysisProgressDialog", 
            "TARGET_LABELS", "TIME_SCOPE_CHOICES", "TIME_SCOPE_LABELS", "analysis_center",
            "analysis_source_resolvers", "duration_text", "format_extra_headers", "launch_analysis",
            "parse_extra_headers", "parse_optional_datetime", "parse_optional_float", "parse_timeout",
-           "plain_label", "read_only_text", "result_section_text", "run_analysis", "run_operation",
+           "plain_label", "read_only_text", "display_sections", "parsed_result", "reference_summary", "result_section_text", "run_analysis", "run_operation",
            "selected_section_text", "show_run_result", "source_line", "suggested_memory_content",
            "time_text", "track_dialog", "utc_text", "validate_credential_ref"]

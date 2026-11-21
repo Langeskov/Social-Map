@@ -80,19 +80,3 @@ class Memory:
         if self.valid_until is not None and self.valid_until <= moment:
             return False
         return True
-
-
-@dataclass(frozen=True, slots=True)
-class CandidateReference:
-    """A source marker found in a model answer.
-
-    Candidates are *never* trusted: `accepted` is only true when the referenced
-    object exists, belongs to the same workspace and was part of this run's
-    recorded sources.
-    """
-
-    raw: str
-    entity_type: str
-    entity_id: UUID | None = None
-    accepted: bool = False
-    reason: str = ""

@@ -297,12 +297,25 @@ class AnalysisPage(ContextPage, QWidget):
         return locked
 
     def _lock_for_options(self, options) -> None:
-        """Lock once the worker of this options dialog actually started."""
+        """Lock once the worker started; unlock only when the QThread ends.
+
+        The lock spans the actual Worker lifecycle (Phase 12.3): a cancel
+        request and a closed dialog never unlock early, success, failure and
+        cancellation all unlock through ``QThread.finished``, and no thread is
+        ever killed to cancel a model request. The connection is explicitly
+        queued to this page (GUI thread), because ``finished`` is emitted from
+        the worker thread.
+        """
         progress = getattr(options, "progress", None)
-        if progress is None:
+        worker = getattr(progress, "worker", None) if progress is not None else None
+        if worker is None:
             return
         self.set_workspace_locked(True)
-        progress.finished.connect(lambda _=None: self.set_workspace_locked(False))
+        worker.finished.connect(self._unlock_after_worker, Qt.ConnectionType.QueuedConnection)
+
+    def _unlock_after_worker(self) -> None:
+        """The QThread has truly ended: release the Workspace lock."""
+        self.set_workspace_locked(False)
 
     # ------------------------------------------------- Phase 11: context protocol
     def context_object(self):

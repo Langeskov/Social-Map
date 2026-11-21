@@ -68,7 +68,7 @@ SQLAlchemy Repository Adapter → SQLite / Local MediaStore
 ```
 
 - **必须带 `-s`**：用户级 PySide6 与 conda Qt 会冲突，导致 `DLL load failed`。
-- 当前基线：**1515 collected / 1510 passed / 5 environment-skipped / 0 failed**（Phase 12 末）。
+- 当前基线：**1516 collected / 1511 passed / 5 environment-skipped / 0 failed**（Phase 12.5 末）。
 - 5 项 skipped 是 `tests/storage/test_media_store.py` 的
   「OS does not grant temporary-test symlink creation」（Windows symlink 权限）。
   **不得删除、不得弱化、不得描述为通过。**

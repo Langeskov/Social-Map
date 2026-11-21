@@ -12,6 +12,7 @@ Phase 12 把既有能力组织成人物调查工作台（Person Investigation Co
 | 12.2 | Activity & Evidence Inspector（选中联动、阅读器、跳转、时间线批量读） | 完成 |
 | 12.3 | Workspace Navigation & Cleanup（时间线入口、隐藏组件移除、归档契约、分析锁定） | 完成 |
 | 12.4 | V1 Verification & Release Readiness（探针、文档、测试质量） | 实现完成；**发布验收待完成**（见 §9） |
+| 12.5 | Archive Read-only Consistency & Release Closure（归档历史读取、状态矩阵、文档收尾） | 完成（见 §9b） |
 
 ## 1. Git 基线与提交历史
 
@@ -44,12 +45,12 @@ b518f31 test(ui): replace dead assertions with real state checks
 
 命令：`.\.venv\Scripts\python.exe -s -m pytest -q -ra`（必须带 `-s`）
 
-| 项 | Phase 11 基线 | 12.1 后 | 12.2 后 | 12.3 后 | 12.4 最终 |
-|---|---|---|---|---|---|
-| collected | 1483 | 1498 | 1510 | 1515 | **1515** |
-| passed | 1478 | 1493 | 1505 | 1510 | **1510** |
-| skipped | 5 | 5 | 5 | 5 | **5** |
-| failed | 0 | 0 | 0 | 0 | **0** |
+| 项 | Phase 11 基线 | 12.1 后 | 12.2 后 | 12.3 后 | 12.4 后 | 12.5 最终 |
+|---|---|---|---|---|---|---|
+| collected | 1483 | 1498 | 1510 | 1515 | 1515 | **1516** |
+| passed | 1478 | 1493 | 1505 | 1510 | 1510 | **1511** |
+| skipped | 5 | 5 | 5 | 5 | 5 | **5** |
+| failed | 0 | 0 | 0 | 0 | 0 | **0** |
 
 5 项 skipped 仍是 `tests\storage\test_media_store.py:275` 的「OS does not grant
 temporary-test symlink creation」（Windows 符号链接权限），语义未变、未删除、未改写为通过。
@@ -128,7 +129,7 @@ Dialog、Workspace 选择器、TopBar 状态提示。**未执行不得记为通�
 ## 7. 文档一致性修正（12.4）
 
 - `README.md`：删除「当前程序没有实现 backup/恢复功能」的自相矛盾（升级≠备份，指向
-  Settings Create Backup）；补 Phase 12 能力与回归数字（1515/1510/5/0）；时间线表述更新。
+  Settings Create Backup）；补 Phase 12 能力与回归数字（12.5 末为 1516/1511/5/0）；时间线表述更新。
 - `docs/media.md`：「当前 backup 尚未实现」改为 Phase 10 实现事实（保留 WAL 警示）。
 - `docs/verification.md`：「备份恢复实现」移出未完成清单（指向数据管理文档）。
 - `docs/phase11-verification.md`：决策对照表不再声称保留已删除的 EventTimeline（注明
@@ -173,5 +174,5 @@ Phase 12 五项最终退出条件中，除「真实 Windows DPI 人工验收记�
 全部达成：调查工作台、Ego 与全局 Graph 共用绘图实现、Activity/Evidence 完整路径、
 Workspace Timeline 可见入口、Dashboard 无隐藏查询、搜索单一入口、归档读取契约明确且
 经测试、归档媒体解绑规则未变、分析锁定贯穿 Worker 生命周期、Context Reset 正确、
-布局探针可从干净仓库执行、文档与实现一致、最终回归 1515 collected / 1510 passed /
+布局探针可从干净仓库执行、文档与实现一致、最终回归 1516 collected / 1511 passed /
 5 environment-skipped / 0 failed、5 项环境 Skip 未伪装、Git 基线清晰。

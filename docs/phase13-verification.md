@@ -454,6 +454,154 @@ AnalysisRun + AnalysisSource + Context Entity Manifest 共同判定，且失败�
 
 ---
 
+## Phase 13.3 — Reproducibility & Telemetry
+
+**目标**：让用户能回答"当时用了什么模型、哪个 Prompt 版本、哪些上下文、模型实际返回哪个
+版本、消耗多少 Token、是否因长度限制提前结束、相同输入能否重建"，同时不新增无用列、
+不重写历史运行、不泄漏凭据。
+
+### 9.7 要求的实施前分析（字段缺口与迁移决策）
+
+1. **当前字段缺口**：`AnalysisRun` 已有 provider_name / model_name / scope /
+   context_snapshot / result / error_message / created_at / started_at / completed_at /
+   duration_ms；`ChatResponse` 已解析 content / model / finish_reason / usage / raw_id，
+   但 `AnalysisService` 只保存 content——返回模型、finish_reason、usage、重试次数、
+   Prompt/上下文/请求哈希均未持久化。
+2. **不新增字段的替代方案**：(a) 写入现有 `AnalysisRun.scope` JSON 的版本化
+   `telemetry` 键（**采用**）——scope 已是运行元数据 JSON，读侧忽略未知键；
+   (b) 写入 `context_snapshot` JSON——拒绝：该字段语义是"模型当时看到的上下文"；
+   (c) 读取时重算——只能重算估算与哈希，无法重算 Provider 实际返回的
+   model/finish_reason/usage。
+3. **新字段的必要性**：Response 元数据无法由快照/结果重建，但**现有 scope TEXT 列
+   已足够承载**，因此不需要新列。
+4. **数据兼容策略**：新运行写入 telemetry；旧运行无该键 → 读取为 `None`、UI 显示
+   "未记录（旧记录）"，不回填、不重写。scope 请求部分仍不可改写（仓储层校验，只允许
+   追加/替换 telemetry）。
+5. **SQLite migration 方案**：**无迁移**。不新增 Alembic revision，不改已发布迁移，
+   不改事实表/来源表。若未来确需独立列，按惯例单独提出并需显式批准的最小迁移。
+6. **旧 AnalysisRun 读取**：`AnalysisRunView.telemetry` 防御式解析（非 dict / 无 version
+   → None）；读取本身不写库；历史 result/context_snapshot 不受影响。
+7. **备份/恢复影响**：telemetry 属于 `analysis_run.scope` 行内文本，随现有备份/恢复
+   原样复制；无新表/新文件；导出把 scope 作为运行元数据带出（仅哈希/计数/ID，安全）。
+8. **数据库回滚策略**：schema 未变 → 无回滚动作；功能向后兼容（旧代码忽略未知键，
+   旧数据新代码读为未记录）。
+
+### 完成内容
+
+1. **响应元数据归一化**（`app/services/llm/response_metadata.py`）：usage 缺失 →
+   `available=False` 且各字段 `None`（不补 0、不推算 total；`input_tokens`/`output_tokens`
+   仅重命名）；finish reason 保留原始值并归一为
+   `STOP` / `LENGTH` / `CONTENT_FILTER` / `TOOL_CALLS` / `OTHER` / `UNAVAILABLE`。
+2. **运行遥测**（`app/services/analysis_telemetry.py`）：版本化 `telemetry` 块，含
+   Request Identity（provider、请求模型、Prompt 版本/hash、上下文 hash、请求 hash、
+   schema 版本、离线估算 tokens）、Response Metadata（返回模型、finish reason、usage、
+   provider request id）、Execution（status / duration / retry_count / error_class）；
+   哈希使用 canonical JSON + SHA-256（`None≠""`、排除 `analysis_run_id` 与
+   `generated_at`、保留数组顺序）。
+3. **持久化**：telemetry 写入现有 `AnalysisRun.scope` JSON，**无迁移**；仓储层把
+   scope 的 request 部分保持 write-once，只允许追加/替换 telemetry（其他差异抛
+   `DomainError`，不再静默忽略）。
+4. **重试计数**：`LLMGateway.chat_with_attempts()` 返回实际尝试次数，服务据此写
+   `retry_count`（不推测）。
+5. **UI**：结果对话框新增 结束原因 / Token 用量（Provider 实际值）/ 上下文估算
+   （离线，非实际）/ Prompt 版本 / 上下文 Hash / 请求 Hash / 重试次数；`LENGTH` 与
+   `CONTENT_FILTER` 显示显式警告（`analysisFinishWarning`），页面消息同步提示；
+   HTTP 成功仍为 `SUCCEEDED`（提前结束 ≠ 正常完成）；旧记录显示"未记录（旧记录）"。
+6. **文档**：`docs/analysis.md` 新增遥测章节；`docs/phase13-evaluation.md` 更新变更
+   记录与可复现性说明。
+
+### 修改文件
+
+- 新增：`app/services/llm/response_metadata.py`、`app/services/analysis_telemetry.py`、
+  `tests/services/llm/test_response_metadata.py`、`tests/services/test_analysis_telemetry.py`
+- 修改：`app/services/llm/{gateway,__init__}.py`、`app/services/analysis.py`、
+  `app/storage/analysis_repositories.py`（scope 追加式 telemetry 校验）、
+  `app/ui/{analysis_dialog,analysis_page}.py`、
+  `tests/services/{test_analysis_service,test_export_service}.py`、
+  `tests/ui/test_analysis_ui.py`、`docs/{analysis,phase13-evaluation}.md`
+- 删除：无
+
+### 边界与数据库变更
+
+- **无数据库迁移、无 schema 变化**（Alembic revision 数量不变；事实表/来源表未动）。
+- 仓储层扩展为"scope 请求部分不可变 + telemetry 追加"，需显式校验并通过测试；
+  历史运行不被回填/重写；分析不写事实。
+- 隐私：不存 API Key/Authorization/完整头/原始响应体；Provider 返回值仅取 `id`。
+
+### 新增测试（19 + 集成）
+
+- `test_response_metadata.py`（8）：finish 类别与未知/缺失/非字符串、usage 全量/缺失/
+  部分/input-output 拼写/非法值不推算。
+- `test_analysis_telemetry.py`（11）：canonical JSON、Prompt/上下文/请求哈希的稳定性
+  与内容敏感性、易变值排除、None≠""、partial/complete/fail 合并、scope 回环与坏数据。
+- `test_analysis_service.py`（+10）：成功运行遥测字段、同输入哈希一致、usage 缺失
+  unavailable、返回模型/finish 原样、重试计数=实际尝试、失败与上下文失败遥测、
+  旧记录读取为未记录、无密钥/隐私内容、取消遥测、scope 请求部分不可变 + telemetry
+  仅追加。
+- `test_analysis_ui.py`（+2）：对话框显示结束原因/用量/Prompt 版本/哈希、LENGTH 截断
+  警告与页面提示、旧记录"未记录（旧记录）"且无警告。
+- `test_export_service.py`（扩展）：导出元数据包含 telemetry 且不含密钥/结果正文。
+
+子集实测：`tests/services` 441 passed（1:15）；`tests/evaluation` 38 passed；
+受影响 UI 三文件 68 passed（1:13）。
+
+### 测试迁移
+
+- `chat_response` 测试助手新增 `model` / `finish_reason` / `usage` / `raw_id` 参数
+  （默认行为不变）；原有断言未弱化；5 项 Windows symlink 环境 Skip 保持原义。
+
+### 测试运行命令与结果
+
+子集（服务层 + LLM + 评估 + 受影响 UI）：
+
+```powershell
+& .\.venv\Scripts\python.exe -s -m pytest tests/services tests/evaluation tests/ui/test_analysis_ui.py tests/ui/test_memory_ui.py tests/ui/test_phase11_analysis_memory_settings.py -q -ra
+```
+
+- **（见下方"最终回归"表 13.3 行前的子集结果）**
+
+全量回归（13.3 完成后）：
+
+- **1630 collected / 1625 passed / 5 environment-skipped / 0 failed（退出码 0，8:33）**
+- 增量核对：1598（13.2 完成后）+ 32（13.3 新增：响应元数据 8 + 遥测单元 11 +
+  服务集成 11 + UI 2）= 1630 ✓；5 项 Windows symlink 环境 Skip 保持原义。
+
+### Git 提交
+
+| Commit | 说明 |
+|---|---|
+| `d6d319b` | feat(analysis)：运行遥测 + 响应元数据归一化 + scope 追加式 telemetry（含测试） |
+| （本文件提交） | docs(phase13)：记录 Phase 13.3 与字段缺口分析 |
+
+### 与原始计划不同的实现及理由
+
+1. **无迁移、telemetry 存入 scope JSON**：项目硬规则禁止未经批准改 schema；9.7 也要求
+   先报告缺口再决定。scope 已是运行元数据 JSON，读侧忽略未知键，版本化 telemetry 块
+   满足全部字段需求；若未来需要独立列，按 9.7 流程另行批准。
+2. **scope 追加式语义**：既有"scope write-once"契约不推翻，只增加经校验的 telemetry
+   追加通道（其他差异报错），并补测试固定。
+3. **返回模型与请求模型分开记录**：Provider 可能返回不同版本模型，两者都保留。
+4. **截断不改变运行状态**：HTTP 成功仍 `SUCCEEDED`，截断以 finish_reason 与显式警告
+   呈现，避免把元数据混入业务状态。
+
+### 已知局限 / 结转 13.4
+
+- 未启用 Provider 级 `response_format` 能力声明（当前仅提示词约定）；属 13.4 模型评估
+  的比较维度之一。
+- `provider_request_id` 仅保存响应的 `id` 字符串（截断 200 字符），不保存其他响应头。
+- 遥测不包含 retry 的时间分布；`error_class` 只记异常类名。
+- 旧运行无法补全 finish_reason/usage（不重写历史，符合要求）。
+
+### 下一阶段（13.4）的前置条件
+
+✅ 运行遥测（Prompt/上下文/请求哈希、模型元数据、usage、finish、重试、耗时）可读取；
+✅ 离线评估框架与数据集 1.1、引用验证器可复用；✅ 历史兼容与无迁移约束有测试。
+13.4 需要：统一 Dataset/Scenario/ContextSnapshot/Prompt 版本下的多模型离线对比、
+显式触发的在线评估、报告定位失败样本、人工复核与 LLM Judge 分离、`evaluation-runs/`
+产物边界。
+
+---
+
 ## 最终回归（每子阶段后更新）
 
 | 阶段 | collected | passed | skipped | failed | 退出码 |
@@ -464,3 +612,4 @@ AnalysisRun + AnalysisSource + Context Entity Manifest 共同判定，且失败�
 | Phase 13.0 补充（契约形式化） | — | — | — | — | 仅文档+注册表；相关子集 58 项通过 |
 | Phase 13.1 完成后 | 1583 | 1578 | 5 | 0 | 0 |
 | Phase 13.2 完成后 | 1598 | 1593 | 5 | 0 | 0 |
+| Phase 13.3 完成后 | 1630 | 1625 | 5 | 0 | 0 |

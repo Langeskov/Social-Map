@@ -271,6 +271,10 @@ CJK 实际约 `len/1.5 ≈ 0.67·len` tokens，而估算为 `0.5·len`——**�
 `EvaluationRunResult.volatile_fields` 在每次运行结果中显式声明上述字段；
 报告中的 `masked_digest` 用于跨运行比较，`rendered_digest` 保留原始字节摘要。
 
+Phase 13.3 的运行遥测哈希（Prompt/上下文/请求）用于**识别分析运行当时的输入内容**；
+它们记录在 `AnalysisRun.scope.telemetry`，不参与评估数据集的可复现性比较（评估比较
+基于重建的 ContextSnapshot 与掩码后渲染文本）。
+
 ## 10. 来源曝光契约（Source Exposure Contract，13.0 补充决策）
 
 > 本契约于 13.0 收口时由项目负责人补充确认：采用**扩展 AnalysisSource 覆盖范围 +
@@ -377,3 +381,4 @@ CJK 实际约 `len/1.5 ≈ 0.67·len` tokens，而估算为 `0.5·len`——**�
 | 13.0 补充 | 来源曝光契约（Source Exposure Contract）纳入正式评估契约；`EXPOSURE_MANIFEST` 指标登记（N/A 待 13.1） |
 | 13.1 | 结构化结果契约 + 解析器；Context Entity Manifest 联动（标记 / source_ids / 持久化 / 数据集 required_sources）；`EXPOSURE_MANIFEST` 启用；可复现性改为掩码后逐字节比较 |
 | 13.2 | 引用验证器（9 种状态，Manifest + AnalysisSource 联合校验）；候选引用状态化（移除 accepted 布尔）；结果对话框逐条验证；数据集 1.1 + 样例输出；`REFERENCE_GROUNDING` 启用 |
+| 13.3 | 版本化运行遥测（Prompt/上下文/请求哈希、返回模型、usage、finish reason、重试与耗时）写入 scope JSON（无迁移）；响应元数据归一化；截断/内容过滤显式警告；导出随运行元数据带出 |

@@ -154,6 +154,48 @@ Provider 不支持 JSON mode 时也按普通文本返回，解析器负责降级
 `version` 存在 `context_snapshot` JSON 里，**没有数据库迁移**。旧 Snapshot 无
 Manifest 时按旧 scope 规则读取（不回填、不修改历史 Run）。
 
+## 可追溯性遥测（Phase 13.3）
+
+每次 AnalysisRun 记录一份**版本化遥测**（`telemetry.version = "1"`），让用户能回答：
+当时用了哪个 Provider / 请求模型、模型实际返回的版本、Prompt 版本与哈希、上下文与请求
+哈希、Token 用量、结束原因、重试次数与耗时。
+
+**存储**：写入现有 `AnalysisRun.scope` JSON 的 `telemetry` 键，**无数据库迁移、无 schema
+变更**（字段缺口分析见 [Phase 13 验收记录](phase13-verification.md) 的 13.3 小节）。
+scope 的请求部分仍不可改写；仓储层只允许**追加** telemetry，其他差异会被拒绝而不是静默
+忽略。旧运行没有 telemetry → 读取为"未记录（旧记录）"，不回填、不重写。
+
+字段：
+
+- Request Identity：`provider_name`、`requested_model`、`prompt_template_version`、
+  `prompt_hash`、`context_snapshot_hash`、`request_hash`、`analysis_schema_version`、
+  `estimated_context_tokens`（离线估算，与 Provider 实际用量分开）；
+- Response Metadata：`returned_model`、`finish_reason`（原始值 + 规范类别）、`usage`
+  （`prompt_tokens` / `completion_tokens` / `total_tokens` + `available`）、
+  `provider_request_id`（仅响应 `id` 字符串，截断保存）；
+- Execution：`status`、`duration_ms`、`retry_count`（网关实际尝试次数−1，失败运行
+  另记 `error_class`）。
+
+**哈希规范（仅用于识别内容变化，不是签名或防篡改证明）**：canonical JSON
+（`sort_keys=True`、`ensure_ascii=False`、紧凑分隔符）→ UTF-8 → SHA-256。`None` 与 `""`
+保持区别；排除易变值（`analysis_run_id`、`generated_at`）；数组顺序保留、不排序。
+Prompt Hash 覆盖静态提示词模板（System + 输出模板 + 分析目标）；上下文 Hash 覆盖
+scope（扣除 run id）、sections 与渲染正文；请求 Hash 覆盖最终 message payload
+（model + messages + temperature 等参数）。
+
+**响应元数据归一化**（`app/services/llm/response_metadata.py`）：
+
+- usage 缺失 → `available=False` 且各字段 `None`，**绝不补 0、绝不推算 total**；
+  `input_tokens` / `output_tokens` 拼写只做重命名映射；
+- finish reason 保留原始字符串并归一为 `STOP` / `LENGTH` / `CONTENT_FILTER` /
+  `TOOL_CALLS` / `OTHER` / `UNAVAILABLE`；`LENGTH` 与 `CONTENT_FILTER` 在结果对话框
+  与页面提示中**显式警告**（"输出被长度限制截断……不能视为完整分析"），HTTP 请求成功
+  仍记为 `SUCCEEDED`——提前结束不等于正常完成。
+
+**隐私**：遥测只含引用与计数，不含 API Key、Authorization、完整 HTTP 头或原始响应体；
+Provider 返回值只取 `id` 字符串。导出/备份沿用既有 scope JSON 行为（导出随运行元数据
+一并带出，内容安全）。
+
 ## 错误处理与重试
 
 | 情况 | 结果 |

@@ -55,7 +55,7 @@ PersonMedia解绑物理删除关联记录，不删除Media文件。Person归档�
 
 delete_if_unreferenced仅用于失败导入补偿，不是UI的删除功能；proof未知时不删。
 
-**当前 backup 尚未实现。** 未来一致备份必须涵盖SQLite/WAL状态与完整media文件集，不能把空backups目录、单独复制主库或复制media树称为备份。
+**备份由 Phase 10 实现**（Settings → `Create Backup`：SQLite 在线备份 API 取得一致快照，连同 media 与 manifest 一起打包，并有 `Verify Backup` 恢复校验）。一致备份必须涵盖 SQLite/WAL 状态与完整 media 文件集；WAL 运行时不能只复制主库，也不能把空 backups 目录或单独复制 media 树称为备份。
 
 ## 路径与验证边界
 

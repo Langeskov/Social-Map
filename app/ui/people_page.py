@@ -17,9 +17,8 @@ Everything reads through the application Services; the drawing layer is shared
 with the global Graph page (:mod:`app.ui.graph_canvas`), so nodes, edges, state
 pens and click handling exist exactly once.
 
-The hidden page-level ``SearchPanel`` is a Phase 11 leftover kept only until the
-Phase 12.3 cleanup removes it together with its historical test contracts; the
-page's visible search box is a *local list filter*, not a search engine entry.
+Global search lives only in the TopBar (Ctrl+F); this page's visible search box
+is a *local list filter*, not a search engine entry.
 """
 import logging
 from dataclasses import dataclass
@@ -46,7 +45,6 @@ from app.ui.image_viewer import ImageViewer
 from app.ui.graph_canvas import (GraphClicks, GraphView, build_graph_items, ego_positions)
 from app.ui.relationship_panel import RelationshipPanel
 from app.ui.memory_panel import MemoryPanel, MemoryWorkspaceDialog
-from app.ui.search_panel import SearchPanel
 from app.ui.timeline_panel import (MODE_PERSON, RelationshipDetailDialog, TimelinePanel, state_text)
 from PySide6.QtWidgets import QGraphicsScene
 
@@ -119,13 +117,9 @@ class PeoplePage(ContextPage, QWidget):
         top.addWidget(self.workspace_combo, 1)
         self.button(top, "新建 Workspace", self.create_workspace)
         layout.addLayout(top)
-        self.search_panel = SearchPanel(services, self, name="peopleSearch",
-                                        placeholder="统一搜索：人物 / 别称 / 事件 / 证据（本页过滤见下方）")
-        self.search_panel.navigate_requested.connect(self.open_search_result)
-        # Phase 11: unified search moved to the TopBar (Ctrl+F); this page keeps its
-        # own *filter* box. The embedded panel stays hidden until the Phase 12.3
-        # cleanup removes it with its historical test contracts.
-        self.search_panel.hide()
+        # Phase 12.3: the hidden page-level SearchPanel copy is gone. Global
+        # search lives only in the TopBar (Ctrl+F); the visible search box below
+        # is a *local list filter*, not a search engine entry.
         # ----------------------------------------------- three-region workspace
         self.outer_split = QSplitter(Qt.Orientation.Vertical)
         self.inner_split = QSplitter(Qt.Orientation.Horizontal)
@@ -533,12 +527,9 @@ class PeoplePage(ContextPage, QWidget):
         self.search.blockSignals(True)
         self.search.clear()
         self.search.blockSignals(False)
-        self.search_panel.clear()
         self.notify_context()
 
     def load_workspace(self, workspace_id):
-        if self.search_panel is not None:
-            self.search_panel.set_workspace(workspace_id)
         self.refresh_people()
 
     def sync_workspace_combo(self):
@@ -553,7 +544,6 @@ class PeoplePage(ContextPage, QWidget):
 
     def activate(self):
         self.run_operation(self.refresh_workspaces)
-        self.search_panel.set_workspace(self.workspace_id)
         self.refresh_people()
 
     # ------------------------------------------------------------- people list
@@ -1117,19 +1107,6 @@ class PeoplePage(ContextPage, QWidget):
             dialog.show()
             return dialog
         return self.run_operation(show)
-
-    def open_search_result(self, result):
-        """A unified-search hit: PERSON/ALIAS select here, EVENT/EVIDENCE jump."""
-        if result.entity_type in {"PERSON", "ALIAS"}:
-            person_id = result.metadata.get("person_id") or result.entity_id
-            self.focus_person(person_id)
-        elif result.entity_type == "EVENT":
-            self.navigate_requested.emit("event", result.entity_id)
-        elif result.entity_type == "EVIDENCE":
-            event_id = result.metadata.get("event_id")
-            if event_id is not None:
-                self.navigate_requested.emit("event", event_id)
-        return result
 
     # ------------------------------------------------------------ Phase 9: memory
     def open_workspace_memories(self):

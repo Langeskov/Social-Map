@@ -142,7 +142,9 @@ def test_switching_workspace_closes_non_modal_detail_windows(shell):
 def test_switching_workspace_clears_search_input_and_results(shell):
     services, ws, window = shell.services, shell.a.id, shell.window
     services.people.create(ws, "搜索目标甲")
-    panel = window.people_page.search_panel
+    # Phase 12.3: the single global search lives in the TopBar; a Workspace
+    # switch clears its input and results and re-scopes it.
+    panel = window.global_search
     panel.input.setText("搜索目标甲")
     panel.refresh()
     assert panel.result_list.count() == 1
@@ -180,7 +182,7 @@ def test_switching_workspace_resets_the_analysis_page(shell):
 def test_search_never_crosses_workspaces(shell):
     services, window = shell.services, shell.window
     services.people.create(shell.a.id, "跨库人物")
-    panel = window.people_page.search_panel
+    panel = window.global_search
     panel.set_workspace(shell.b.id)
     panel.input.setText("跨库人物")
     results = panel.refresh()

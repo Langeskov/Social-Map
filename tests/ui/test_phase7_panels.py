@@ -103,7 +103,8 @@ def test_event_only_timeline_is_gone_and_the_complete_one_covers_events(panels):
 
 def test_people_search_entry_finds_records_and_navigates(panels):
     c = panels
-    panel = c.page.search_panel
+    # Phase 12.3: the unified search entry is the TopBar one (global search).
+    panel = c.window.global_search
     panel.set_workspace(c.ws)
     panel.input.setText("面板乙")
     results = panel.refresh()
@@ -125,7 +126,7 @@ def test_people_search_entry_finds_records_and_navigates(panels):
 @pytest.mark.parametrize("query", ["*", '"', "AND", "OR NOT", "a-b", "面板 AND 甲", "-", "("])
 def test_search_entry_survives_operator_text(panels, query):
     c = panels
-    panel = c.page.search_panel
+    panel = c.window.global_search
     panel.set_workspace(c.ws)
     panel.input.setText(query)
     results = panel.refresh()

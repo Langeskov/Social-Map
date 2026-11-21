@@ -79,9 +79,16 @@ def test_dashboard_shows_five_layered_recent_lists(case):
 
 
 def test_dashboard_no_longer_embeds_search_or_the_full_timeline(case):
+    """Phase 12.3: the hidden copies are *removed*, not merely hidden."""
     page = case.window.dashboard_page
-    assert page.search_panel.isVisible() is False
-    assert page.workspace_timeline.isVisible() is False
+    assert not hasattr(page, "search_panel")
+    assert not hasattr(page, "workspace_timeline")
+    # The responsibilities live in their real homes: TopBar global search and
+    # the Events page's Workspace Timeline tab.
+    assert case.window.global_search is not None
+    events = case.window.events_page
+    assert events.workspace_timeline is not None
+    assert events.tabs.indexOf(events.workspace_timeline) >= 0
 
 
 def test_dashboard_lists_recent_analysis_as_derived(case):

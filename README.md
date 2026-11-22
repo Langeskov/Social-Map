@@ -2,12 +2,12 @@
 
 本地优先的人际关系知识库：PySide6 桌面应用，SQLite + SQLAlchemy + Alembic，单用户、不联网、不同步、无账号。**所有模型调用必须由用户显式触发，模型输出永远不是事实。**
 
-当前状态：**Phase 1–13 完成（含 13.5 遥测重试次数小修复）；Phase 14.0 设计、Phase 14.1 ChangeLog 持久化基础、Phase 14.2 业务事务捕获、Phase 14.3 只读历史与差异 UI 已完成；14.4（受控恢复与完整性）尚未实现**。Phase 13（Analysis Quality & Evaluation）交付结构化结果契约、来源曝光契约与引用验证、可复现运行遥测、模型评估与对比；Phase 12（人物调查工作台）与 Phase 10 稳定性能力保持不变。最新全量回归：**1733 collected / 1728 passed / 5 environment-skipped / 0 failed（退出码 0）**。
+当前状态：**Phase 1–13 完成（含 13.5 遥测重试次数小修复）；Phase 14（0–4：设计、ChangeLog 持久化、业务事务捕获、只读历史/差异 UI、受控字段恢复与完整性审计）全部完成**。Phase 13（Analysis Quality & Evaluation）交付结构化结果契约、来源曝光契约与引用验证、可复现运行遥测、模型评估与对比；Phase 12（人物调查工作台）与 Phase 10 稳定性能力保持不变。最新全量回归：**1756 collected / 1751 passed / 5 environment-skipped / 0 failed（退出码 0）**。
 
 ## 核心原则
 
 - **事实层**（11 张业务表）只由用户录入与编辑；**Memory** 是用户确认过的长期语义（USER）；模型输出/推断/派生（DERIVED）永不写回事实。
-- 无 Sync / OCR / RAG / 向量库 / 自动 Memory / 自动关系判断；程序不插入示例数据。Phase 14 按设计文档提供**受审计范围限制**的 ChangeLog / Revision：14.1 建立 append-only 持久化基础，14.2 已将 Person/Alias/Media/Relationship/Event/Evidence/Memory/Workspace 的业务写操作接入同一事务审计，14.3 提供只读历史时间线/字段差异/操作组 UI（Person/Event/Evidence/Relationship/Memory 入口；旧数据与不可解析快照有明确提示）；**受控字段恢复（14.4）尚未实现**。
+- 无 Sync / OCR / RAG / 向量库 / 自动 Memory / 自动关系判断；程序不插入示例数据。Phase 14 按设计文档提供**受审计范围限制**的 ChangeLog / Revision：14.1 建立 append-only 持久化基础，14.2 已将 Person/Alias/Media/Relationship/Event/Evidence/Memory/Workspace 的业务写操作接入同一事务审计，14.3 提供只读历史时间线/字段差异/操作组 UI（Person/Event/Evidence/Relationship/Memory 入口；旧数据与不可解析快照有明确提示），14.4 提供白名单字段的预览+确认恢复（作为新的 REVERT 版本，旧历史不可变）与 ChangeLog 完整性审计。
 - 模型调用由用户点击触发；`include_memories` 默认关闭；分析、评估、审计都不修改事实。
 - 单一 Workspace 上下文与 Context Reset；界面不显示开发阶段编号；无动画。
 
@@ -95,7 +95,7 @@ python -m app.main
 & .\.venv\Scripts\python.exe -s -m pytest -q -ra
 ```
 
-- **当前基线：1733 collected / 1728 passed / 5 environment-skipped / 0 failed（退出码 0）**（Phase 14.3 末）。
+- **当前基线：1756 collected / 1751 passed / 5 environment-skipped / 0 failed（退出码 0）**（Phase 14.4 末）。
 - 5 项 skipped 是 Windows 临时测试 symlink 权限（`tests/storage/test_media_store.py`），保留原测试与原因，**不计为 passed**。
 - 既有阶段基线：Phase 10 `1373 passed`、Phase 11 `1478 passed`、Phase 12 `1511 passed`；详见各阶段验收记录。
 - 真实 Windows DPI 人工验收在 Phase 11/12 记录中标注为「未检查」，不记为通过。
@@ -120,4 +120,4 @@ Remove-Item -Recurse -Force .test-runs, .pytest_cache -ErrorAction SilentlyConti
 
 ## 下一步
 
-Phase 14.0 设计、14.1 ChangeLog 持久化基础、14.2 业务事务捕获、14.3 只读历史与差异 UI 已完成；14.4（受控恢复与完整性）需用户明确指派，不会自动推进。代码已发布到用户自有 GitHub 仓库（origin: Langeskov/Social-Map）；仓库无自动同步、无 CI。
+Phase 14.0–14.4 已全部完成（设计、持久化、业务事务捕获、只读历史/差异 UI、受控恢复与完整性审计）。后续任何阶段（如 Sync/OCR/RAG/自动 Memory/向量库）都必须由用户明确批准设计后单独指派，不会自动推进。代码已发布到用户自有 GitHub 仓库（origin: Langeskov/Social-Map）；仓库无自动同步、无 CI。

@@ -2,7 +2,7 @@
 
 ## 当前实现
 
-Phase 1 Qt 骨架、Phase 2 数据库、Phase 3 Workspace／Person／Media、Phase 4 Relationship／RelationshipHistory、Phase 5 Event／EventParticipant、Phase 6 Evidence／EvidenceMedia、Phase 7 投影层（Unified Search／Timeline／Relationship Graph／Dashboard）、Phase 8 分析层（LLM Provider／ContextBuilder／AnalysisRun／AnalysisSource）、Phase 9 的 Analysis Review 与用户确认 Memory、Phase 10 的稳定化（只读完整性审计／一致性备份与恢复校验／导出／数据管理界面）、Phase 11 的 UI/UX 整合、Phase 12 的人物调查工作台、Phase 13 的分析质量与评估（结构化结果契约、来源曝光与引用验证、运行遥测、模型评估），以及 Phase 14.0 的 ChangeLog 设计与 Phase 14.1 的 ChangeLog 持久化基础（append-only 操作审计表）。事实层仍是十一张正式业务表；ChangeLog 不属于事实层，也不是状态 store。旧工作区 Phase 1 指引由用户明确授权的后续阶段请求覆盖。
+Phase 1 Qt 骨架、Phase 2 数据库、Phase 3 Workspace／Person／Media、Phase 4 Relationship／RelationshipHistory、Phase 5 Event／EventParticipant、Phase 6 Evidence／EvidenceMedia、Phase 7 投影层（Unified Search／Timeline／Relationship Graph／Dashboard）、Phase 8 分析层（LLM Provider／ContextBuilder／AnalysisRun／AnalysisSource）、Phase 9 的 Analysis Review 与用户确认 Memory、Phase 10 的稳定化（只读完整性审计／一致性备份与恢复校验／导出／数据管理界面）、Phase 11 的 UI/UX 整合、Phase 12 的人物调查工作台、Phase 13 的分析质量与评估（结构化结果契约、来源曝光与引用验证、运行遥测、模型评估），以及 Phase 14.0 的 ChangeLog 设计、14.1 持久化基础、14.2 业务事务捕获、14.3 只读历史/差异 UI、14.4 受控字段恢复与完整性审计（append-only 操作审计表）。事实层仍是十一张正式业务表；ChangeLog 不属于事实层，也不是状态 store。旧工作区 Phase 1 指引由用户明确授权的后续阶段请求覆盖。
 
 ```text
 UI（Domain Entity / DTO / Service）
@@ -80,19 +80,20 @@ Phase 14 采用**单表 append-only ChangeLog + 逻辑 Revision**：不建独立
 - **归属**：只有 `workspace_id` 是真实外键；多态实体引用由 Writer 校验与完整性审计兜底（SQLite 无法用一个外键指向多张表），如实保留该限制。
 - **不可变性**：Repository 只有 append/read；ORM 守卫拒绝 update/delete；管理员 raw SQL 仍可绕过，不宣称触发器级保护。
 - **快照**：白名单字段（`app/services/change_serialization.py`），排除系统时间、Evidence 原始内容、媒体二进制与内部路径；`payload_version` 管理格式演进。
-- **14.3 状态**：只读历史查询与差异 UI 已完成（Person/Event/Evidence/Relationship/Memory 入口；操作组、分页、旧数据提示、未知快照降级）；**受控恢复（14.4）尚未实现**，UI 没有任何撤销/恢复字段按钮。
+- **14.4 状态**：只读历史/差异 UI（14.3）与受控字段恢复（14.4）已完成。恢复仅限白名单字段，读取目标 Revision 快照 → 预览 → 用户确认 → 经原 Service update 写入，并产生一条 REVERT Revision；旧 ChangeLog 行不改不删；关联不自动恢复。完整性审计新增 ChangeLog 检查（孤儿/Workspace 不一致/非法类型动作/版本缺口/快照损坏/父引用无效/操作跨 Workspace），只报告不修复。
 - **捕获方式**：Service 层显式 `ChangeLogWriter`（不是 ORM Hook），由最外层业务方法创建 `ChangeOperationContext` 并透传嵌套调用；Alias、PersonMedia、EventParticipant、EvidenceMedia 的子集合变化记录在父实体快照中，RelationshipHistory 独立成实体并以 parent 关联 Relationship。
 - **历史边界**：Phase 14 之前创建的数据没有历史记录，不根据 `created_at/updated_at` 伪造；备份天然包含该表，默认导出不含。
 
-## UI 层（Phase 14.3 — Revision History & Diff Viewer）
+## UI 层（Phase 14.3/14.4 — Revision History, Diff & Controlled Revert）
 
 - **只读历史对话框** [revision_history.py](<../app/ui/revision_history.py>)：实体版本列表（新版在前、分页加载）、字段级"旧 → 新"差异、操作组（同一次用户操作的全部变更）、长文本全文查看、未知/旧版本快照降级提示、旧数据说明。
 - **入口**：People 人物操作区"历史"、Event 详情对话框、Evidence 面板、Relationship 面板、Memory 面板；关系额外展示"状态历史（追加记录）"分区。
-- **边界**：不显示原始 JSON/内部字段名；不提供恢复或撤销（14.4）；历史查询经 Service，UI 不接触 ORM；已归档实体仍可查看历史。
+- **受控恢复**：历史版本上的"恢复此版本字段…"仅对白名单、当前有效、确有差异的版本启用；`RevertPreviewDialog` 展示"当前 → 目标"字段清单，确认后才执行，结果作为新的 REVERT 版本出现在时间线顶部。
+- **边界**：不显示原始 JSON/内部字段名；恢复不能越过实体身份/Workspace/系统时间戳/关系身份与关系历史/证据原始内容/记忆来源/媒体二进制与路径/子集合白名单；历史查询与恢复均经 Service，UI 不接触 ORM；已归档实体可查看历史，但字段恢复前必须先用既有功能恢复实体。
 
 ## 数据管理（Phase 10）
 
-只读审计（`DataIntegrityService`）、一致性备份与恢复校验（`BackupService` / `BackupVerificationService`）、导出（`WorkspaceExportService`）全部**只读源库与源媒体**，并且只由用户在 Settings 里显式触发：启动不 hash 全媒体、Dashboard 不审计、不自动备份、不自动上传。审计**只报告**（孤儿文件不删除，留给未来的 GC），备份用 SQLite 在线备份 API 取得一致快照而不是复制 WAL 文件，导出的 JSON 明确标注"不是备份"且不含任何凭据。
+只读审计（`DataIntegrityService`）、一致性备份与恢复校验（`BackupService` / `BackupVerificationService`）、导出（`WorkspaceExportService`）全部**只读源库与源媒体**，并且只由用户在 Settings 里显式触发：启动不 hash 全媒体、Dashboard 不审计、不自动备份、不自动上传。审计**只报告**（孤儿文件不删除，留给未来的 GC；Phase 14 起还包括 append-only ChangeLog 的引用/版本/快照/操作一致性检查，同样不修复），备份用 SQLite 在线备份 API 取得一致快照而不是复制 WAL 文件，导出的 JSON 明确标注"不是备份"且不含任何凭据。
 
 Phase 10 的结构精简：UI 操作/错误边界合并为 [operations.py](<../app/ui/operations.py>) 唯一一份（原 21 份副本），行↔Domain 映射合并为 [mapping.py](<../app/storage/mapping.py>)（原 5 份，并修正了"通用辅助挂在关系模块"的错误归属）。各聚合自己的 workspace 作用域查询**刻意保留**——它们的可见性语义不同，强行参数化会造出假抽象。
 
@@ -153,7 +154,7 @@ Phase 12 把既有能力组织成人物调查工作台（Person Investigation Co
 
 ## 未实现与后续决策
 
-- Sync／MemoryRevision；这些表与功能不存在。ChangeLog 已持久化、接入业务写操作（Phase 14.2）并提供只读历史/差异 UI（Phase 14.3）；受控字段恢复（14.4）尚未实现。
+- Sync／MemoryRevision；这些表与功能不存在。ChangeLog 已持久化、接入业务写操作（14.2）、提供只读历史/差异 UI（14.3）与受控字段恢复/完整性审计（14.4）。
 - Vision／OCR、RAG／向量库、embedding、记忆相似度搜索、自动记忆整合。
 - 聊天导入、自动事件提取、自动摘要、自动关系判断、自动 Memory。
 - 由分析结果修改事实的流程（Analysis → 用户复核 → 显式 Service 操作）；本阶段不实现。

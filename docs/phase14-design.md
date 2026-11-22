@@ -896,3 +896,33 @@ Writer 记录 `REVERT`。
 - **组合根**：`ApplicationServices.change_history` 新增只读服务；UI 经 Service，不接触
   ORM/JSON。
 - **未变**：无 schema/migration；未实现字段恢复（14.4）。
+
+---
+
+## 21. 实施记录（Phase 14.4 — Controlled Revert & Integrity）
+
+- **恢复白名单**（`app/services/change_revert.py`）：PERSON 8 字段、EVENT 8 字段、
+  EVIDENCE 仅 title/annotation、MEMORY content/kind/person_id/valid_from/valid_until、
+  WORKSPACE name/description。实体身份/Workspace/系统时间戳/Relationship 身份与 History/
+  Evidence 原始内容/Memory 来源字段/Media 二进制与路径/所有子集合均不可恢复；不支持的类型
+  返回明确"不支持"原因。
+- **恢复流程**：`preview()` 读取目标 Revision 快照 → 校验实体存在且未归档/未删除、字段
+  白名单、payload_version、目标值合法性、当前值差异、Workspace 名称冲突；`revert()` 必须
+  `confirmed=True`，无差异时返回 applied=False 且不产生新版本。执行时创建
+  `ChangeOperationContext(action_override="REVERT", metadata={"source_revision_no": n})`，
+  调用**原 Service 的 update 方法**（新增内部 `operation=` 参数透传上下文），业务校验、
+  领域规范化、事务与审计写入全部复用；ChangeLog 产生一条 REVERT Revision，旧行不改不删。
+  REVERT 可通过再次恢复反向操作，不是不可逆改写。
+- **关联不自动恢复**：alias、参与者、附件、媒体引用、关系端点等仍由用户显式操作；生命周期
+  恢复只经既有 restore Service（Person/Workspace 当前没有恢复，故其归档记录不能字段恢复）。
+- **失败语义**：归档/已删除、快照不可用、白名单外实体、名称冲突、确认缺失均在写库前拒绝；
+  快照生成/审计写入失败由 Service 事务整体回滚，不产生新 Revision。
+- **UI**：历史对话框新增"恢复此版本字段…"按钮，仅当预览 `can_revert and has_changes` 时可用；
+  点击打开 `RevertPreviewDialog` 展示"当前 → 目标"字段清单，确认后才执行；结果以新版本出现在
+  时间线顶部。无恢复能力的实体/版本按钮禁用并给出原因。
+- **完整性审计**（`DataIntegrityService`）：新增只读 ChangeLog 检查（不修复）：孤儿实体、
+  Workspace 不一致、未知实体/动作、版本号缺口/重复、快照或 changed_fields 不可解析、
+  父引用无效、同一 operation 跨 Workspace。表行数作为独立 `table_change_log` 计数，
+  不改变 fact_tables 语义；备份/导出行为不变。
+- **未变**：无 schema/migration（仍 0009）；不重写历史、不自动修复任何数据；不改变备份/导出
+  内容。

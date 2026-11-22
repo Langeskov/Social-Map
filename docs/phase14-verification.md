@@ -408,7 +408,108 @@ Evidence/Relationship/Memory 的历史入口对话框。可访问已归档实体
 
 ## Phase 14.4 — Controlled Revert & Integrity
 
-（待实施）
+### 1. 本阶段结论
+
+**完成**：实现白名单字段的受控恢复（预览 → 明确确认 → 经原 Service 写入 → 新 REVERT
+Revision；旧历史不改不删），并为 ChangeLog 增加只读完整性审计。禁止恢复的字段/实体/状态
+均被明确拒绝；失败不产生新版本；UI 无静默恢复入口。
+
+### 2. 实际修改内容
+
+- **Service**：新增 `app/services/change_revert.py`（`ChangeRevertService`：
+  `preview`/`revert`、白名单、目标快照校验、当前实体校验、名称冲突、`REVERT` 审计元数据、
+  经 people/events/evidence/memories/workspaces 的既有 update 方法写入）。
+- **审计通道**：`ChangeOperationContext` 增加 `action_override`/`metadata`；
+  `ChangeLogWriter.record` 将原 UPDATE 标记为 REVERT 并写入
+  `metadata={"source_revision_no": n}`；五个 update 方法新增内部 `operation=` 透传参数
+  （默认行为不变，既有测试无需修改）。
+- **Integrity**：`DataIntegrityService` 新增只读 ChangeLog 检查与独立
+  `table_change_log`/`change_log_rows_checked` 计数；错误码：
+  `CHANGE_LOG_ORPHAN_ENTITY`、`CHANGE_LOG_WORKSPACE_MISMATCH`、
+  `CHANGE_LOG_INVALID_TYPE`、`CHANGE_LOG_INVALID_ACTION`、
+  `CHANGE_LOG_REVISION_GAP`、`CHANGE_LOG_REVISION_DUPLICATE`、
+  `CHANGE_LOG_SNAPSHOT_INVALID`、`CHANGE_LOG_PARENT_INVALID`、
+  `CHANGE_LOG_OPERATION_INCONSISTENT`。
+- **UI**：`RevisionHistoryDialog` 新增"恢复此版本字段…"（仅可恢复且有差异时启用）；
+  新增 `RevertPreviewDialog`（字段"当前 → 目标"+ 确认/取消），确认后执行并刷新时间线。
+- **Application**：`ApplicationServices.change_revert` 装配；恢复服务与业务服务共享同一
+  Writer/Service 实例。
+- **未改**：无 schema/migration（仍 0009）；历史行不可修改/删除；无自动修复、无自动恢复。
+
+### 3. 关键设计决定
+
+1. **白名单唯一**：PERSON/EVENT 各 8 字段、EVIDENCE title/annotation、MEMORY
+   content/kind/person_id/valid_from/valid_until、WORKSPACE name/description；其余实体
+   明确不支持。Association/子集合不随字段恢复。
+2. **经原 Service**：恢复不写 SQL、不绕过领域校验/事务/审计；REVERT 是新的业务操作，
+   产生新 Revision，旧版本只读。
+3. **明确确认**：`confirmed=True` 为必需参数；UI 必须经过预览对话框；无变化不写。
+4. **失败即拒绝且无副作用**：归档/删除、快照不可用、名称冲突、非法目标值、确认缺失均在
+   写入前拒绝；审计写入失败整体回滚。
+5. **完整性审计只报告**：多态引用无法用外键表达，ChangeLog 检查作为补偿控制，只报告不修复。
+6. **无静默恢复**：UI 不为无差异/不支持/归档版本启用按钮，并显示原因。
+
+### 4. 数据库变化
+
+**无**：未新增 migration、未改 schema（仍 `0009_change_log`）。新审计行与既有表结构一致。
+
+### 5. 测试运行命令与结果
+
+```powershell
+& .\.venv\Scripts\python.exe -s -m pytest -q -ra
+```
+
+- **1756 collected / 1751 passed / 5 environment-skipped / 0 failed（退出码 0，9:07）**
+- 增量核对：1733（Phase 14.3 完成后）+ 23（Phase 14.4 新增：revert 12 +
+  integrity 7 + UI 4）= 1756；既有测试无删除/弱化，5 项 Windows symlink skip 保持原义。
+
+新增测试：
+
+- `tests/services/test_change_revert.py`（12）：Person 恢复产生 REVERT 新版本且旧行不变、
+  白名单过滤、不支持实体/未知快照/归档拒绝、确认必需、无变化不写、Workspace 名称冲突不写、
+  Workspace description 恢复、Event 日期与 Evidence 元数据恢复（content_text 不变）、
+  Memory person/validity 的 None 往返、审计写入失败回滚、参数校验。
+- `tests/services/test_change_integrity.py`（7）：干净数据无 ChangeLog 错误与计数、孤儿实体、
+  Workspace 不一致、版本缺口、快照非法、父引用无效、跨 Workspace 操作、Workspace 过滤。
+- `tests/ui/test_revision_history_ui.py`（+4，共 14）：恢复按钮仅对有效目标启用、归档阻止、
+  确认对话框字段清单、执行恢复后出现 REVERT 版本与提示。
+
+### 6. 已知问题和风险
+
+1. 恢复只覆盖单实体白名单字段；关联（alias/participants/media）需用户显式操作。
+2. 恢复目标版本必须存在且快照可解析；不具备历史的数据无法恢复（不伪造）。
+3. 归档实体的字段恢复被拒绝：需先经既有恢复功能；Person/Workspace 当前没有恢复功能，
+   因此其归档记录只能查看历史。
+4. 名称冲突在预览即阻止，但并发下仍可能由 Service 最终拒绝（last-write-wins 之外的既有
+   ConflictError 语义）。
+5. 完整性审计的 `CHANGE_LOG_REVISION_DUPLICATE`/`INVALID_*` 主要防御未来/绕过写入；
+   正常 CHECK 约束下难以触发，测试覆盖可触发子集。
+
+### 7. 下一阶段前置条件
+
+- ✅ Phase 14 全部子阶段（14.0–14.4）完成：审计写入、历史/差异 UI、受控恢复、完整性检查。
+- ✅ 旧历史不可变、恢复产生新版本、失败无副作用、UI 明确确认均有测试。
+- ⏭ 任何后续阶段（如 Sync/自动 Memory/OCR/RAG/向量库）必须先由用户明确批准设计，
+  不自动推进；不得引入自动模型调用/自动同步/自动上传。
+
+### 8. Git 状态
+
+- 分支：`phase-14-revision-changelog`
+- 本阶段提交：`a1f471b`（Service + UI + 完整性检查 + 测试）；文档提交紧随本记录
+- 是否推送远端：**否**
+
+---
+
+## Phase 14 总结
+
+- **14.0** 设计（审计矩阵/契约/不可变边界）✅
+- **14.1** `change_log` append-only 持久化基础（迁移 0009）✅
+- **14.2** 业务写操作同事务捕获（8 类实体、operation 分组、失败回滚）✅
+- **14.3** 只读历史/差异/操作组 UI（5 类实体入口、旧数据提示、未知快照降级）✅
+- **14.4** 白名单受控恢复（REVERT 新版本、旧历史不可变）+ ChangeLog 完整性审计 ✅
+
+Phase 14 完成后仍是单用户、本地优先、不联网、不同步、无账号的应用；ChangeLog 是审计/
+可解释性基础设施，不是 Event Sourcing、不是多端同步机制，也不授权任何自动写入。
 
 ---
 
@@ -420,3 +521,4 @@ Evidence/Relationship/Memory 的历史入口对话框。可访问已归档实体
 | 14.1（ChangeLog 持久化基础） | 1686 | 1681 | 0 | 5 | 0 |
 | 14.2（业务事务接入） | 1712 | 1707 | 0 | 5 | 0 |
 | 14.3（只读历史与差异 UI） | 1733 | 1728 | 0 | 5 | 0 |
+| 14.4（受控恢复与完整性） | 1756 | 1751 | 0 | 5 | 0 |

@@ -31,6 +31,9 @@ ANALYSIS_TABLES = {
 # Phase 9 memory table: what the user confirmed about a person or a whole workspace.
 # Part of the complete schema, never a business fact table.
 MEMORY_TABLES = {"memory"}
+# Phase 14 append-only ChangeLog: operational history, mapped model, never a fact
+# table and never a second state store.
+CHANGE_LOG_TABLES = {"change_log"}
 
 
 def run_app(config_path: Path, cwd: Path):
@@ -51,16 +54,19 @@ def test_application_process_restart(tmp_path):
     runtime = initialize_database(config)
     try:
         table_names = set(inspect(runtime.engine).get_table_names())
-        assert table_names == FACT_TABLES | PROJECTION_OBJECTS | ANALYSIS_TABLES | MEMORY_TABLES | {
-            "alembic_version"}
+        assert table_names == (FACT_TABLES | PROJECTION_OBJECTS | ANALYSIS_TABLES
+                               | MEMORY_TABLES | CHANGE_LOG_TABLES | {"alembic_version"})
         assert len(FACT_TABLES) == 11
         assert FACT_TABLES.isdisjoint(PROJECTION_OBJECTS)
         assert FACT_TABLES.isdisjoint(ANALYSIS_TABLES)
         assert FACT_TABLES.isdisjoint(MEMORY_TABLES)
+        assert FACT_TABLES.isdisjoint(CHANGE_LOG_TABLES)
         assert ANALYSIS_TABLES.isdisjoint(PROJECTION_OBJECTS)
         assert MEMORY_TABLES.isdisjoint(PROJECTION_OBJECTS)
         assert MEMORY_TABLES.isdisjoint(ANALYSIS_TABLES)
-        assert current_heads(runtime.engine) == ("0008_memory",)
+        assert CHANGE_LOG_TABLES.isdisjoint(FACT_TABLES | ANALYSIS_TABLES | MEMORY_TABLES
+                                            | PROJECTION_OBJECTS)
+        assert current_heads(runtime.engine) == ("0009_change_log",)
     finally:
         runtime.close()
     log = (config.log_dir / "application.log").read_text(encoding="utf-8")

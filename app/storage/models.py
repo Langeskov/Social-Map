@@ -594,3 +594,83 @@ class MemoryModel(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
     deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
+
+# Phase 14 additions: the nineteen preceding mappings remain unchanged.
+#
+# CHANGE_LOG is append-only operational history, not a business fact and not a
+# second state store. One row records one real business write; a "revision" is a
+# read-time view over rows of one entity ordered by revision_no. Snapshots are
+# whitelisted JSON documents (no ORM state, no binaries, no media files), and the
+# entity reference is polymorphic: SQLite cannot point one foreign key at eight
+# tables, so only workspace_id is a real foreign key and the rest is validated by
+# the writer plus integrity checks (Phase 14.1 repository contract).
+CHANGE_LOG_ENTITY_TYPES = ("WORKSPACE", "PERSON", "RELATIONSHIP", "RELATIONSHIP_HISTORY",
+                           "EVENT", "EVIDENCE", "MEDIA", "MEMORY")
+CHANGE_LOG_ACTIONS = ("CREATE", "UPDATE", "ARCHIVE", "RESTORE", "IMPORT",
+                      "APPEND_HISTORY", "ATTACH_EVENT", "DETACH_EVENT", "REVERT")
+
+
+def _sql_values(values) -> str:
+    return ", ".join(f"'{value}'" for value in values)
+
+
+class ChangeLogModel(Base):
+    __tablename__ = "change_log"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="pk_change_log"),
+        ForeignKeyConstraint(["workspace_id"], ["workspace.id"],
+                             name="fk_change_log_workspace_id_workspace"),
+        UniqueConstraint("workspace_id", "id", name="uq_change_log_workspace_id_id"),
+        # One entity cannot have two rows with the same revision number; the writer
+        # derives the next number inside the same transaction.
+        UniqueConstraint("workspace_id", "entity_type", "entity_id", "revision_no",
+                         name="uq_change_log_workspace_entity_revision"),
+        CheckConstraint(f"entity_type IN ({_sql_values(CHANGE_LOG_ENTITY_TYPES)})",
+                        name="entity_type_valid"),
+        CheckConstraint(f"action IN ({_sql_values(CHANGE_LOG_ACTIONS)})",
+                        name="action_valid"),
+        CheckConstraint("revision_no >= 1", name="revision_positive"),
+        CheckConstraint("parent_entity_type IN ("
+                        f"{_sql_values(CHANGE_LOG_ENTITY_TYPES)}) "
+                        "OR parent_entity_type IS NULL", name="parent_type_valid"),
+        CheckConstraint("(parent_entity_type IS NULL) = (parent_entity_id IS NULL)",
+                        name="parent_pair_valid"),
+        CheckConstraint("length(payload_version) > 0", name="payload_version_nonempty"),
+        CheckConstraint("length(trim(changed_fields)) > 0", name="changed_fields_present"),
+        Index("ix_change_log_workspace_entity",
+              "workspace_id", "entity_type", "entity_id", "revision_no"),
+        Index("ix_change_log_workspace_operation", "workspace_id", "operation_id"),
+        Index("ix_change_log_workspace_recorded", "workspace_id", "recorded_at", "id"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    workspace_id: Mapped[UUID] = mapped_column(Uuid)
+    entity_type: Mapped[str] = mapped_column(String(30))
+    entity_id: Mapped[UUID] = mapped_column(Uuid)
+    # The aggregate a row belongs to for history views (currently only
+    # RELATIONSHIP_HISTORY -> RELATIONSHIP); NULL when the entity is its own root.
+    parent_entity_type: Mapped[str | None] = mapped_column(String(30))
+    parent_entity_id: Mapped[UUID | None] = mapped_column(Uuid)
+    action: Mapped[str] = mapped_column(String(30))
+    operation_id: Mapped[UUID] = mapped_column(Uuid)
+    revision_no: Mapped[int] = mapped_column(Integer)
+    # Canonical JSON array of whitelisted business field names.
+    changed_fields: Mapped[str] = mapped_column(Text)
+    # Canonical JSON objects; NULL before-state only for CREATE/IMPORT.
+    before_snapshot: Mapped[str | None] = mapped_column(Text)
+    after_snapshot: Mapped[str | None] = mapped_column(Text)
+    payload_version: Mapped[str] = mapped_column(String(10))
+    # "metadata" is reserved by SQLAlchemy's Declarative API, so the attribute has a
+    # different Python name while the column keeps the contract name.
+    metadata_json: Mapped[str | None] = mapped_column("metadata", Text)
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+
+@event.listens_for(ChangeLogModel, "before_update")
+def _guard_change_log_immutable_update(_mapper, _connection, _target):
+    raise DomainError("ChangeLog 只允许追加，不允许修改。")
+
+
+@event.listens_for(ChangeLogModel, "before_delete")
+def _guard_change_log_immutable_delete(_mapper, _connection, _target):
+    raise DomainError("ChangeLog 只允许追加，不允许删除。")
+

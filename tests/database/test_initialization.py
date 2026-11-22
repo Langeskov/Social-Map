@@ -30,9 +30,13 @@ ANALYSIS_TABLES = {"analysis_run", "analysis_person_source", "analysis_relations
 # Phase 9 memory table: user-confirmed facts, preferences and context. A mapped model
 # created by migration 0008, never a business fact table.
 MEMORY_TABLES = {"memory"}
-ORM_TABLES = FACT_TABLES | {"search_document"} | ANALYSIS_TABLES | MEMORY_TABLES
+# Phase 14 append-only ChangeLog: operational history created by migration 0009.
+# A mapped model, never a business fact table and never a state store.
+CHANGE_LOG_TABLES = {"change_log"}
+ORM_TABLES = (FACT_TABLES | {"search_document"} | ANALYSIS_TABLES | MEMORY_TABLES
+              | CHANGE_LOG_TABLES)
 HEAD_TABLES = ORM_TABLES | PROJECTION_TABLES | FTS_SHADOW_TABLES | {"alembic_version"}
-FORMAL_HEAD = ("0008_memory",)
+FORMAL_HEAD = ("0009_change_log",)
 
 
 def test_application_initialization_migrates_schema_without_default_workspace(tmp_path, monkeypatch):

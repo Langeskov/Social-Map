@@ -41,9 +41,10 @@ ANALYSIS_TABLES = {"analysis_run", "analysis_person_source", "analysis_relations
 # Phase 9 memory table: user-confirmed facts, preferences and context. Part of the
 # complete head schema, never a business fact table.
 MEMORY_TABLES = {"memory"}
+CHANGE_LOG_TABLES = {"change_log"}
 HEAD_TABLES = (ALL | PROJECTION_TABLES | FTS_SHADOW_TABLES | ANALYSIS_TABLES | MEMORY_TABLES
-               | {"alembic_version"})
-HEAD = ("0008_memory",)
+               | CHANGE_LOG_TABLES | {"alembic_version"})
+HEAD = ("0009_change_log",)
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -306,7 +307,8 @@ def test_head_metadata_matches_named_schema_and_alembic_check(database):
     inspector = sa.inspect(engine)
     # At the head the ORM maps the eleven fact tables, the search projection, the
     # analysis ledger and the memory table: 0006, 0007 and 0008 add no business fact.
-    assert set(Base.metadata.tables) == ALL | {"search_document"} | ANALYSIS_TABLES | MEMORY_TABLES
+    assert set(Base.metadata.tables) == (ALL | {"search_document"} | ANALYSIS_TABLES
+                                          | MEMORY_TABLES | CHANGE_LOG_TABLES)
     assert len(ALL) == 11
     assert ALL.isdisjoint(ANALYSIS_TABLES)
     assert ALL.isdisjoint(MEMORY_TABLES)
@@ -458,8 +460,9 @@ def test_offline_sql_roundtrip_executes_frozen_history_without_schema_or_data_lo
             assert connection.scalar(sa.select(sa.func.count()).select_from(EvidenceMediaModel)) == 0
         fresh_script("0006_search_projection", history_rebuild=True)
         fresh_script("0007_analysis", history_rebuild=True)
-        # The last revision of the chain executes offline too and leaves the head.
         fresh_script("0008_memory", history_rebuild=True)
+        fresh_script("0009_change_log", history_rebuild=True)
+        # The last revision of the chain executes offline too and leaves the head.
         assert current_heads(engine) == HEAD
         assert set(sa.inspect(engine).get_table_names()) == HEAD_TABLES
         test_head_metadata_matches_named_schema_and_alembic_check((engine, migration))

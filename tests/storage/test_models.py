@@ -22,7 +22,10 @@ ANALYSIS_TABLES = {"analysis_run", "analysis_person_source", "analysis_relations
 # Phase 9 adds the memory table: user-confirmed facts, preferences and context about
 # one person or a whole workspace. Also never a business fact table.
 MEMORY_TABLES = {"memory"}
-ALLOWED_TABLES = FACT_TABLES | SEARCH_PROJECTION_TABLES | ANALYSIS_TABLES | MEMORY_TABLES
+# Phase 14 adds the append-only ChangeLog (operational history, not a fact table).
+CHANGE_LOG_TABLES = {"change_log"}
+ALLOWED_TABLES = (FACT_TABLES | SEARCH_PROJECTION_TABLES | ANALYSIS_TABLES
+                  | MEMORY_TABLES | CHANGE_LOG_TABLES)
 
 
 def test_five_models_have_named_portable_constraints():
@@ -36,6 +39,7 @@ def test_five_models_have_named_portable_constraints():
     assert SEARCH_PROJECTION_TABLES.isdisjoint(FACT_TABLES)
     assert ANALYSIS_TABLES.isdisjoint(FACT_TABLES)
     assert MEMORY_TABLES.isdisjoint(FACT_TABLES)
+    assert CHANGE_LOG_TABLES.isdisjoint(FACT_TABLES)
     assert "search_document_fts" not in metadata_tables
     for table in Base.metadata.sorted_tables:
         assert all(constraint.name for constraint in table.constraints)

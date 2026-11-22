@@ -30,7 +30,8 @@ from app.storage.models import (
     RelationshipModel, SearchDocumentModel, WorkspaceModel,
 )
 from tests.migrations.schema_facts import (
-    ANALYSIS_TABLES, FACT_TABLES, MEMORY_TABLES, NOW, PROJECTION_OBJECTS,
+    ANALYSIS_TABLES, CHANGE_LOG_TABLES, FACT_TABLES, MEMORY_TABLES, NOW,
+    PROJECTION_OBJECTS,
     PROJECTION_TABLES, SEARCH_DOCUMENT, SEARCH_DOCUMENT_FTS, fts_shadow_tables,
 )
 
@@ -179,6 +180,11 @@ def memory_objects(engine):
     return MEMORY_TABLES & sqlite_master_names(engine)
 
 
+def change_log_objects(engine):
+    """Phase 14 ChangeLog actually present; empty before 0009."""
+    return CHANGE_LOG_TABLES & sqlite_master_names(engine)
+
+
 def projection_head_tables(engine):
     """0006 table set: eleven fact tables, two projection objects, no shadow tables.
 
@@ -190,14 +196,15 @@ def projection_head_tables(engine):
 
 def expected_head_tables(engine):
     """Current-head table set: facts, projection objects, analysis ledger, memory."""
-    return projection_head_tables(engine) | analysis_objects(engine) | memory_objects(engine)
+    return (projection_head_tables(engine) | analysis_objects(engine)
+            | memory_objects(engine) | change_log_objects(engine))
 
 
 def fact_table_names(engine):
     """Only the business fact tables: every later group is filtered out."""
     names = set(sa.inspect(engine).get_table_names()) - {"alembic_version"}
     return (names - PROJECTION_OBJECTS - fts_shadow_tables(names) - ANALYSIS_TABLES
-            - MEMORY_TABLES)
+            - MEMORY_TABLES - CHANGE_LOG_TABLES)
 
 
 def fts_query(connection, term):
@@ -260,7 +267,7 @@ def test_0005_to_0006_adds_only_projection_objects_and_survives_reopen(tmp_path,
         # which this revision does not create yet: the complete 0006 schema is
         # asserted as fact + projection only.
         assert set(Base.metadata.tables) == (FACT_TABLES | {SEARCH_DOCUMENT} | ANALYSIS_TABLES
-                                             | MEMORY_TABLES)
+                                             | MEMORY_TABLES | CHANGE_LOG_TABLES)
         assert SEARCH_DOCUMENT_FTS not in Base.metadata.tables
         shadow = fts_shadow_tables(raw_table_names(engine))
         assert len(shadow) == 5
@@ -603,13 +610,15 @@ def test_offline_sql_renders_fts5_ddl_and_executes_on_real_sqlite(tmp_path, monk
         # The script renders the whole chain, so this is the current head: the
         # projection plus the analysis ledger that 0007 adds and the memory table
         # that 0008 adds on top of it.
-        assert current_heads(engine) == ("0008_memory",)
+        assert current_heads(engine) == ("0009_change_log",)
         assert fact_table_names(engine) == FACT_TABLES
         assert projection_objects(engine) == PROJECTION_OBJECTS | fts_shadow_tables(raw_table_names(engine))
         assert analysis_objects(engine) == ANALYSIS_TABLES
         assert memory_objects(engine) == MEMORY_TABLES
+        assert change_log_objects(engine) == CHANGE_LOG_TABLES
         assert "CREATE TABLE analysis_run " in upgrade_sql
         assert "CREATE TABLE memory " in upgrade_sql
+        assert "CREATE TABLE change_log " in upgrade_sql
         with engine.begin() as connection:
             seed_facts(connection)
         before = fact_state(engine)
@@ -617,10 +626,10 @@ def test_offline_sql_renders_fts5_ddl_and_executes_on_real_sqlite(tmp_path, monk
             connection.exec_driver_sql(
                 f"INSERT INTO {SEARCH_DOCUMENT_FTS}(title_tokens, body_tokens) VALUES ('alpha', 'beta')")
 
-        # The database is at 0008 now, so the offline range starts there and the
-        # script drops the memory table, then the analysis ledger, then the
-        # projection objects.
-        downgrade_sql = offline_script("0008_memory:0005_evidence", down=True)
+        # The database is at 0009 now, so the offline range starts there and the
+        # script drops the ChangeLog, then the memory table, then the analysis
+        # ledger, then the projection objects.
+        downgrade_sql = offline_script("0009_change_log:0005_evidence", down=True)
         assert FTS_DROP in downgrade_sql
         assert "DROP INDEX ix_search_document_workspace_deleted" in downgrade_sql
         assert f"DROP TABLE {SEARCH_DOCUMENT}" in downgrade_sql
@@ -628,6 +637,8 @@ def test_offline_sql_renders_fts5_ddl_and_executes_on_real_sqlite(tmp_path, monk
             assert f"DROP TABLE {name}" in downgrade_sql
         for name in sorted(ANALYSIS_TABLES):
             assert f"DROP TABLE {name}" in downgrade_sql
+        assert downgrade_sql.index("DROP TABLE change_log") < \
+            downgrade_sql.index("DROP TABLE memory")
         assert downgrade_sql.index("DROP TABLE memory") < \
             downgrade_sql.index("DROP TABLE analysis_run")
         execute_script(downgrade_sql)
@@ -635,6 +646,7 @@ def test_offline_sql_renders_fts5_ddl_and_executes_on_real_sqlite(tmp_path, monk
         assert {name for name in sqlite_master_names(engine) if "search_document" in name} == set()
         assert sqlite_master_names(engine) & ANALYSIS_TABLES == set()
         assert sqlite_master_names(engine) & MEMORY_TABLES == set()
+        assert sqlite_master_names(engine) & CHANGE_LOG_TABLES == set()
         assert fact_table_names(engine) == FACT_TABLES
         assert fact_state(engine) == before
 

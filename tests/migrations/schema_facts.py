@@ -78,6 +78,18 @@ MEMORY_INDEXES = {
     "ix_memory_workspace_analysis": ("workspace_id", "source_analysis_id"),
 }
 
+# Revision 0009 adds the append-only ChangeLog. It is operational history created by
+# the migration itself, part of the complete head schema, and never one of the
+# eleven business fact tables.
+CHANGE_LOG = "change_log"
+CHANGE_LOG_TABLES = {CHANGE_LOG}
+CHANGE_LOG_INDEXES = {
+    "ix_change_log_workspace_entity":
+        ("workspace_id", "entity_type", "entity_id", "revision_no"),
+    "ix_change_log_workspace_operation": ("workspace_id", "operation_id"),
+    "ix_change_log_workspace_recorded": ("workspace_id", "recorded_at", "id"),
+}
+
 
 def fts_shadow_tables(table_names) -> set[str]:
     """Select the FTS5 shadow tables SQLite creates for search_document_fts.
@@ -98,7 +110,7 @@ def expected_head_tables(table_names=None) -> set[str]:
     alone stands for the index, exactly like ``PROJECTION_TABLES``.
     """
     names = (FACT_TABLES | PROJECTION_TABLES | ANALYSIS_TABLES | MEMORY_TABLES
-             | {"alembic_version"})
+             | CHANGE_LOG_TABLES | {"alembic_version"})
     if table_names is None:
         return names
     return names | fts_shadow_tables(table_names)

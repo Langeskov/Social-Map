@@ -208,7 +208,7 @@ def test_snapshot_is_a_self_contained_single_file(env):
     assert not (result.directory / "database.sqlite3-wal").exists()
     assert not (result.directory / "database.sqlite3-shm").exists()
     assert snapshot_query(result.directory / "database.sqlite3",
-                          "SELECT version_num FROM alembic_version") == [("0008_memory",)]
+                          "SELECT version_num FROM alembic_version") == [("0009_change_log",)]
 
 
 # ------------------------------------------------------ 13: media files copied
@@ -235,7 +235,7 @@ def test_manifest_is_complete_json_and_counts_match_the_files(env):
     assert set(raw) == {"application_version", "schema_revision", "created_at", "workspace_count",
                         "database_sha256", "media_file_count", "media_total_bytes", "media"}
     assert raw["application_version"] == "Phase 10"
-    assert raw["schema_revision"] == "0008_memory"
+    assert raw["schema_revision"] == "0009_change_log"
     assert raw["created_at"] == env.now.isoformat()
     assert raw["workspace_count"] == 1
     assert raw["database_sha256"] == sha256_of(result.database_path)
@@ -248,7 +248,7 @@ def test_manifest_is_complete_json_and_counts_match_the_files(env):
 
 def test_manifest_mapping_round_trip_and_rejection():
     entry = MediaManifestEntry(relative_path="ws/ab/" + "a" * 64, size=12, sha256="a" * 64)
-    manifest = BackupManifest(application_version="Phase 10", schema_revision="0008_memory",
+    manifest = BackupManifest(application_version="Phase 10", schema_revision="0009_change_log",
                               created_at=NOW, workspace_count=2, database_sha256="b" * 64,
                               media_file_count=1, media_total_bytes=12, media=(entry,))
     mapping = manifest.to_mapping()
@@ -395,12 +395,12 @@ def test_verification_checks_agree_with_the_manifest(env):
     # The dedicated service is the single implementation; BackupService delegates.
     direct = BackupVerificationService(env.config, clock=lambda: env.now).verify(result.directory)
     assert direct.ok is True and direct.checks == report.checks
-    assert report.schema_revision == result.manifest.schema_revision == "0008_memory"
+    assert report.schema_revision == result.manifest.schema_revision == "0009_change_log"
     schema = report.check("schema_revision")
-    assert schema.ok is True and "0008_memory" in schema.message
+    assert schema.ok is True and "0009_change_log" in schema.message
     assert "应用 head" in schema.message
     manifest_check = report.check("manifest")
-    assert manifest_check.ok is True and "0008_memory" in manifest_check.message
+    assert manifest_check.ok is True and "0009_change_log" in manifest_check.message
     assert {check.name for check in report.checks} >= {
         "manifest", "database_sha256", "copy", "schema_revision", "integrity_check",
         "foreign_key_check", "media_files", "media_extra_files", "application_open",
@@ -489,7 +489,7 @@ def test_summary_is_readable_for_a_passing_and_a_failing_verification(env):
     text = good.summary()
     assert "备份验证通过" in text and "未通过" not in text
     assert f"{len(good.checks)}/{len(good.checks)} 通过" in text
-    assert "0008_memory" in text and str(result.directory) in text
+    assert "0009_change_log" in text and str(result.directory) in text
     assert all(check.name in text for check in good.checks)
 
     victim = media_path(result.media_dir, result.manifest.media[0].relative_path)

@@ -10,9 +10,14 @@ groups:
 * the Phase 7 search PROJECTION, frozen;
 * the Phase 8 ANALYSIS ledger, added (and removable) on top of both.
 
-Phase 9 (revision ``0008_memory``) adds the ``memory`` table at the head, so the
-head/table-set assertions below name ``0008_memory`` and the complete-schema sets
-add the memory table; every 0007-specific assertion stays exactly as it was.
+Phase 9 (revision ``0008_memory``) adds the ``memory`` table and Phase 14
+(revision ``0009_change_log``) adds the append-only ChangeLog at the head, so the
+head assertions name ``0009_change_log`` and the complete-schema sets include both;
+every historical (0007/0008) assertion stays exactly as it was.
+
+Phase 14 (revision ``0009_change_log``) adds the append-only ChangeLog at the
+head; head assertions name ``0009_change_log`` and pre-0009 table-set assertions
+subtract ``CHANGE_LOG_TABLES``.
 
 PostgreSQL is verified by DDL compilation only. No PostgreSQL server is started
 and no PostgreSQL deployment is claimed.
@@ -39,7 +44,8 @@ from app.storage.models import (
 )
 from tests.migrations.schema_facts import (
     ANALYSIS_RUN, ANALYSIS_SOURCE_TABLES, ANALYSIS_SOURCE_TARGETS, ANALYSIS_TABLES,
-    FACT_TABLES, MEMORY_TABLES, NOW, PROJECTION_OBJECTS, PROJECTION_TABLES,
+    CHANGE_LOG_TABLES, FACT_TABLES, MEMORY_TABLES, NOW, PROJECTION_OBJECTS,
+    PROJECTION_TABLES,
     SEARCH_DOCUMENT_FTS, expected_head_tables, fts_shadow_tables,
 )
 
@@ -225,7 +231,7 @@ def fact_table_names(engine):
     """Only the business fact tables: projection and analysis objects filtered out."""
     names = set(sa.inspect(engine).get_table_names()) - {"alembic_version"}
     return (names - PROJECTION_OBJECTS - fts_shadow_tables(names) - ANALYSIS_TABLES
-            - MEMORY_TABLES)
+            - MEMORY_TABLES - CHANGE_LOG_TABLES)
 
 
 def assert_schema_matches_orm(engine, names):
@@ -278,7 +284,7 @@ def test_0006_to_0007_adds_the_analysis_ledger_and_keeps_every_fact_table(tmp_pa
         # the five analysis tables. Revision 0007 predates 0008's memory table, so
         # that one is excluded here and asserted at the head further down.
         assert set(sa.inspect(engine).get_table_names()) == expected_head_tables(
-            raw_table_names(engine)) - MEMORY_TABLES
+            raw_table_names(engine)) - MEMORY_TABLES - CHANGE_LOG_TABLES
         assert raw_table_names(engine) & MEMORY_TABLES == set()
         assert_schema_matches_orm(engine, FACT_TABLES | ANALYSIS_TABLES)
 
@@ -292,7 +298,7 @@ def test_0006_to_0007_adds_the_analysis_ledger_and_keeps_every_fact_table(tmp_pa
             assert analysis_tables(reopened) == ANALYSIS_TABLES
             assert projection_objects(reopened) == projection_objects(engine)
             assert set(sa.inspect(reopened).get_table_names()) == expected_head_tables(
-                raw_table_names(reopened)) - MEMORY_TABLES
+                raw_table_names(reopened)) - MEMORY_TABLES - CHANGE_LOG_TABLES
             assert_schema_matches_orm(reopened, FACT_TABLES | ANALYSIS_TABLES)
         finally:
             reopened.dispose()
@@ -304,7 +310,7 @@ def test_analysis_run_schema_matches_orm_and_applies_its_constraints(tmp_path, m
     engine, migration = open_database(tmp_path, monkeypatch)
     try:
         migrate(engine, migration, "head")
-        assert current_heads(engine) == ("0008_memory",)
+        assert current_heads(engine) == ("0009_change_log",)
         table = AnalysisRunModel.__table__
         assert table.primary_key.name == "pk_analysis_run"
         inspector = sa.inspect(engine)
@@ -752,7 +758,7 @@ def test_offline_sql_renders_the_analysis_ddl_and_executes_on_real_sqlite(tmp_pa
         # The whole chain is rendered from base, so the offline script is a clean
         # install; executing it produces exactly the head schema, memory included.
         execute_script(offline_script("head"))
-        assert current_heads(engine) == ("0008_memory",)
+        assert current_heads(engine) == ("0009_change_log",)
         assert analysis_tables(engine) == ANALYSIS_TABLES
         assert fact_table_names(engine) == FACT_TABLES
         assert set(sa.inspect(engine).get_table_names()) == expected_head_tables(
@@ -762,9 +768,12 @@ def test_offline_sql_renders_the_analysis_ddl_and_executes_on_real_sqlite(tmp_pa
             seed_facts(connection)
         before = fact_state(engine)
 
-        # The database is at 0008 now, so the offline range starts there: the memory
-        # table goes first, then the analysis ledger.
-        downgrade_sql = offline_script("0008_memory:0006_search_projection", down=True)
+        # The database is at 0009 now, so the offline range starts there: the
+        # ChangeLog goes first, then the memory table, then the analysis ledger.
+        downgrade_sql = offline_script("0009_change_log:0006_search_projection", down=True)
+        assert "DROP TABLE change_log" in downgrade_sql
+        assert downgrade_sql.index("DROP TABLE change_log") < \
+               downgrade_sql.index("DROP TABLE memory")
         for name in sorted(MEMORY_TABLES):
             assert f"DROP TABLE {name}" in downgrade_sql
         for name in sorted(ANALYSIS_TABLES):
@@ -780,11 +789,12 @@ def test_offline_sql_renders_the_analysis_ddl_and_executes_on_real_sqlite(tmp_pa
         assert fact_table_names(engine) == FACT_TABLES
         assert fact_state(engine) == before
 
-        reupgrade_sql = offline_script("0006_search_projection:0008_memory")
+        reupgrade_sql = offline_script("0006_search_projection:head")
         assert f"CREATE TABLE {ANALYSIS_RUN} " in reupgrade_sql
         assert "CREATE TABLE memory " in reupgrade_sql
+        assert "CREATE TABLE change_log " in reupgrade_sql
         execute_script(reupgrade_sql)
-        assert current_heads(engine) == ("0008_memory",)
+        assert current_heads(engine) == ("0009_change_log",)
         assert analysis_objects(engine) == ANALYSIS_TABLES
         assert raw_table_names(engine) & MEMORY_TABLES == MEMORY_TABLES
         assert fact_state(engine) == before

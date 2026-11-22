@@ -33,6 +33,8 @@ ANALYSIS_TABLES = {"analysis_run", "analysis_person_source", "analysis_relations
 # Phase 9 memory table: user-confirmed facts, preferences and context. Part of the
 # complete head schema, never a business fact table.
 MEMORY_TABLES = {"memory"}
+# Phase 14 append-only ChangeLog; part of the complete head schema.
+CHANGE_LOG_TABLES = {"change_log"}
 NOW = datetime(2026, 3, 4, 12, 34, 56, 123456, tzinfo=timezone.utc)
 
 
@@ -45,7 +47,7 @@ def migrated_database(tmp_path, monkeypatch):
     monkeypatch.setattr(Base.metadata, "create_all", forbid_create_all)
     metadata_tables = set(Base.metadata.tables)
     assert metadata_tables == (FORMAL_TABLES | SEARCH_PROJECTION_TABLES | ANALYSIS_TABLES
-                               | MEMORY_TABLES)
+                               | MEMORY_TABLES | CHANGE_LOG_TABLES)
     config = AppConfig(data_dir=tmp_path / "正式 migration with spaces")
     engine = create_sqlite_engine(config)
     migration = alembic_config(config)
@@ -271,10 +273,11 @@ def test_formal_metadata_matches_migration_and_alembic_check(migrated_database):
     # The eleven fact tables plus the mapped Phase 7 search_document projection, the
     # Phase 8 analysis ledger and the Phase 9 memory table.
     assert metadata_tables == (FORMAL_TABLES | SEARCH_PROJECTION_TABLES | ANALYSIS_TABLES
-                               | MEMORY_TABLES)
+                               | MEMORY_TABLES | CHANGE_LOG_TABLES)
     assert len(FORMAL_TABLES) == 11
     assert FORMAL_TABLES.isdisjoint(ANALYSIS_TABLES)
     assert FORMAL_TABLES.isdisjoint(MEMORY_TABLES)
+    assert FORMAL_TABLES.isdisjoint(CHANGE_LOG_TABLES)
     assert "search_document_fts" not in metadata_tables
 
     def assert_reflected_schema_matches(table_names):
@@ -285,7 +288,7 @@ def test_formal_metadata_matches_migration_and_alembic_check(migrated_database):
         reflected = set(inspector.get_table_names())
         assert reflected >= table_names | {"alembic_version"}
         assert reflected - table_names - {"alembic_version"} <= (
-            PROJECTION_OBJECTS | ANALYSIS_TABLES | MEMORY_TABLES)
+            PROJECTION_OBJECTS | ANALYSIS_TABLES | MEMORY_TABLES | CHANGE_LOG_TABLES)
         for table in Base.metadata.sorted_tables:
             if table.name not in table_names:
                 continue
@@ -353,11 +356,24 @@ def test_formal_metadata_matches_migration_and_alembic_check(migrated_database):
     assert set(inspect(engine).get_table_names()) == (
         FORMAL_TABLES | PROJECTION_OBJECTS | ANALYSIS_TABLES | MEMORY_TABLES
         | {"alembic_version"})
+    # The 0009 step adds the append-only ChangeLog only; the fact tables are
+    # untouched. command.check() then compares the whole head schema with the ORM.
+    with engine.begin() as connection:
+        migration.attributes["connection"] = connection
+        try:
+            command.upgrade(migration, "head")
+        finally:
+            migration.attributes.pop("connection")
+    assert current_heads(engine) == ("0009_change_log",)
+    assert_reflected_schema_matches(FORMAL_TABLES)
+    assert set(inspect(engine).get_table_names()) == (
+        FORMAL_TABLES | PROJECTION_OBJECTS | ANALYSIS_TABLES | MEMORY_TABLES
+        | CHANGE_LOG_TABLES | {"alembic_version"})
     with engine.connect() as connection:
         migration.attributes["connection"] = connection
         try:
             command.check(migration)
         finally:
             migration.attributes.pop("connection")
-    assert current_heads(engine) == ("0008_memory",)
+    assert current_heads(engine) == ("0009_change_log",)
     assert set(Base.metadata.tables) == metadata_tables

@@ -15,7 +15,7 @@ from app.storage.migrations import alembic_config, current_heads, expected_heads
 INITIAL_HEAD = ("0001_empty_initial",)
 PHASE3_HEAD = ("0002_workspace_person_media",)
 PROJECTION_HEAD = ("0006_search_projection",)
-FORMAL_HEAD = ("0008_memory",)
+FORMAL_HEAD = ("0009_change_log",)
 PHASE3_TABLES = {"workspace", "person", "person_alias", "media", "person_media"}
 PHASE5_TABLES = PHASE3_TABLES | {"relationship", "relationship_history", "event", "event_participant"}
 EVIDENCE_TABLES = {"evidence", "evidence_media"}
@@ -35,13 +35,18 @@ ANALYSIS_TABLES = {"analysis_run", "analysis_person_source", "analysis_relations
 # Phase 9 memory table on top of all of them: user-confirmed facts, preferences and
 # context. Part of the complete head schema, never one of the eleven fact tables.
 MEMORY_TABLES = {"memory"}
+# Phase 14 append-only ChangeLog: operational history created by migration 0009.
+# Part of the complete head schema, never a fact table.
+CHANGE_LOG_TABLES = {"change_log"}
 # 0006 introduces the projection, so all earlier revisions stay projection-free;
 # 0007 introduces the analysis ledger, so 0006 stays analysis-free; 0008 introduces
-# the memory table, so 0007 stays memory-free.
+# the memory table, so 0007 stays memory-free; 0009 introduces the ChangeLog, so
+# 0008 stays ChangeLog-free.
 PRE_0006_TABLES = FACT_TABLES
 PRE_0007_TABLES = FACT_TABLES | PROJECTION_TABLES | FTS_SHADOW_TABLES | {"alembic_version"}
 PRE_0008_TABLES = PRE_0007_TABLES | ANALYSIS_TABLES
-HEAD_TABLES = PRE_0008_TABLES | MEMORY_TABLES
+PRE_0009_TABLES = PRE_0008_TABLES | MEMORY_TABLES
+HEAD_TABLES = PRE_0009_TABLES | CHANGE_LOG_TABLES
 
 
 @pytest.mark.parametrize("directory", ["data", "空库 with spaces 100%"])
@@ -66,12 +71,13 @@ def test_empty_database_upgrade_downgrade_upgrade(tmp_path, directory):
         assert current_heads(engine) == FORMAL_HEAD
         assert set(inspect(engine).get_table_names()) == HEAD_TABLES
 
-        # 0008 -> 0006 drops the memory table and the analysis ledger, and leaves the
-        # projection in place.
+        # 0009 -> 0006 drops the ChangeLog, the memory table and the analysis ledger,
+        # and leaves the projection in place.
         command.downgrade(migration, "0006_search_projection")
         assert current_heads(engine) == PROJECTION_HEAD
         assert set(inspect(engine).get_table_names()) == PRE_0007_TABLES
         assert {name for name in inspect(engine).get_table_names() if "memory" in name} == set()
+        assert CHANGE_LOG_TABLES.isdisjoint(inspect(engine).get_table_names())
 
         # 0006 -> 0005 drops both projection objects and every FTS5 shadow table.
         command.downgrade(migration, "0005_evidence")
@@ -114,10 +120,10 @@ def test_formal_metadata_matches_migrated_schema_without_seed_data(tmp_path):
     try:
         metadata_tables = set(Base.metadata.tables)
         # The ORM maps the eleven fact tables plus the search_document projection, the
-        # analysis ledger and the memory table; search_document_fts stays
-        # infrastructure, not a model.
+        # analysis ledger, the memory table and the Phase 14 ChangeLog;
+        # search_document_fts stays infrastructure, not a model.
         assert metadata_tables == (FACT_TABLES | {"search_document"} | ANALYSIS_TABLES
-                                   | MEMORY_TABLES)
+                                   | MEMORY_TABLES | CHANGE_LOG_TABLES)
         assert FACT_TABLES.isdisjoint(ANALYSIS_TABLES)
         assert FACT_TABLES.isdisjoint(MEMORY_TABLES)
         assert set(inspect(runtime.engine).get_table_names()) == HEAD_TABLES

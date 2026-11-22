@@ -50,9 +50,10 @@ ANALYSIS_TABLES = {"analysis_run", "analysis_person_source", "analysis_relations
 # Phase 9 memory table: user-confirmed facts, preferences and context. Like the
 # analysis ledger it is part of the complete head schema and never a fact table.
 MEMORY_TABLES = {"memory"}
-HEAD_TABLES = (ALL | PROJECTION_TABLES | ANALYSIS_TABLES | MEMORY_TABLES | FTS_SHADOW_TABLES
-               | {"alembic_version"})
-HEAD = ("0008_memory",)
+CHANGE_LOG_TABLES = {"change_log"}
+HEAD_TABLES = (ALL | PROJECTION_TABLES | ANALYSIS_TABLES | MEMORY_TABLES
+               | CHANGE_LOG_TABLES | FTS_SHADOW_TABLES | {"alembic_version"})
+HEAD = ("0009_change_log",)
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -217,12 +218,15 @@ def test_empty_database_explicit_1_2_3_4_5_6_7(tmp_path, monkeypatch):
              + len(ANALYSIS_TABLES)),
             ("0008_memory", 11, 11 + len(PROJECTION_TABLES) + len(FTS_SHADOW_TABLES)
              + len(ANALYSIS_TABLES) + len(MEMORY_TABLES)),
+            ("0009_change_log", 11, 11 + len(PROJECTION_TABLES) + len(FTS_SHADOW_TABLES)
+             + len(ANALYSIS_TABLES) + len(MEMORY_TABLES) + len(CHANGE_LOG_TABLES)),
         ]:
             migrate(engine, migration, revision)
             assert current_heads(engine) == (revision,)
             names = set(sa.inspect(engine).get_table_names()) - {"alembic_version"}
             assert len(names) == total_count
-            fact_names = names - PROJECTION_TABLES - FTS_SHADOW_TABLES - ANALYSIS_TABLES - MEMORY_TABLES
+            fact_names = (names - PROJECTION_TABLES - FTS_SHADOW_TABLES - ANALYSIS_TABLES
+                          - MEMORY_TABLES - CHANGE_LOG_TABLES)
             assert len(fact_names) == fact_count
             with engine.connect() as connection:
                 assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
@@ -254,8 +258,14 @@ def test_empty_database_explicit_1_2_3_4_5_6_7(tmp_path, monkeypatch):
                 with engine.connect() as connection:
                     assert connection.exec_driver_sql(
                         "SELECT count(*) FROM memory").scalar() == 0
+            if revision == "0009_change_log":
+                # 0009 seeds nothing either: the ChangeLog starts empty.
+                with engine.connect() as connection:
+                    assert connection.exec_driver_sql(
+                        "SELECT count(*) FROM change_log").scalar() == 0
         assert set(sa.inspect(engine).get_table_names()) == HEAD_TABLES
-        # 0008 -> 0006 removes the memory table and the analysis ledger in one step.
+        # 0009 -> 0006 removes the ChangeLog, the memory table and the analysis ledger
+        # in one step.
         migrate(engine, migration, "0006_search_projection", down=True)
         assert current_heads(engine) == ("0006_search_projection",)
         assert set(sa.inspect(engine).get_table_names()) == (
@@ -278,7 +288,7 @@ def test_empty_database_explicit_1_2_3_4_5_6_7(tmp_path, monkeypatch):
         assert current_heads(engine) == ("0007_analysis",)
         assert set(sa.inspect(engine).get_table_names()) == (
             ALL | PROJECTION_TABLES | FTS_SHADOW_TABLES | ANALYSIS_TABLES | {"alembic_version"})
-        migrate(engine, migration, "0008_memory")
+        migrate(engine, migration, "head")
         assert current_heads(engine) == HEAD
         assert set(sa.inspect(engine).get_table_names()) == HEAD_TABLES
     finally:
@@ -543,7 +553,8 @@ def test_head_metadata_matches_named_schema_and_alembic_check(database):
     inspector = sa.inspect(engine)
     # At the head the ORM maps the eleven fact tables, the search projection, the
     # analysis ledger and the memory table: 0006, 0007 and 0008 add no business fact.
-    assert set(Base.metadata.tables) == ALL | {"search_document"} | ANALYSIS_TABLES | MEMORY_TABLES
+    assert set(Base.metadata.tables) == (ALL | {"search_document"} | ANALYSIS_TABLES
+                                          | MEMORY_TABLES | CHANGE_LOG_TABLES)
     assert len(ALL) == 11
     assert ALL.isdisjoint(ANALYSIS_TABLES)
     assert ALL.isdisjoint(MEMORY_TABLES)

@@ -17,6 +17,11 @@ from app.domain.entities.analysis import (ANALYSIS_TYPE_FOR_TARGET, ANALYSIS_TYP
 from app.domain.entities.analysis_result import (AnalysisEntry, AnalysisReference,
                                                  AnalysisResult)
 from app.domain.entities.memory import CONTENT_MAX_LENGTH, KINDS, SOURCE_TYPES, Memory
+from app.domain.entities.change_log import (ACTIONS, ALLOWED_ACTIONS, ENTITY_TYPES,
+                                            PAYLOAD_VERSION, ChangeLogEntry,
+                                            canonical_json, decode_json_object,
+                                            decode_snapshot, encode_changed_fields,
+                                            normalize_snapshot)
 from app.domain.entities.reference_validation import (CITABLE_TYPES, DELETED_SOURCE,
                                                       INVALID_FORMAT, NOT_IN_RUN,
                                                       SOURCE_NOT_EXPOSED,
@@ -35,4 +40,7 @@ __all__ = ["Workspace", "Person", "PersonAlias", "Media", "PersonMedia", "Relati
            "VALID_FULL", "VALID_LIMITED", "INVALID_FORMAT", "UNKNOWN_SOURCE",
            "NOT_IN_RUN", "WORKSPACE_MISMATCH", "TYPE_MISMATCH", "DELETED_SOURCE",
            "SOURCE_NOT_EXPOSED",
-           "Memory", "KINDS", "SOURCE_TYPES", "CONTENT_MAX_LENGTH"]
+           "Memory", "KINDS", "SOURCE_TYPES", "CONTENT_MAX_LENGTH",
+           "ChangeLogEntry", "ENTITY_TYPES", "ACTIONS", "ALLOWED_ACTIONS",
+           "PAYLOAD_VERSION", "canonical_json", "encode_changed_fields",
+           "decode_snapshot", "decode_json_object", "normalize_snapshot"]

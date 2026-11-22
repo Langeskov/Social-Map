@@ -40,8 +40,9 @@ ANALYSIS_TABLES = {"analysis_run", "analysis_person_source", "analysis_relations
 # Phase 9 adds the memory table: user-confirmed facts, preferences and context. Also
 # part of the complete head schema and never a business fact table.
 MEMORY_TABLES = {"memory"}
+CHANGE_LOG_TABLES = {"change_log"}
 HEAD_TABLES = (FACT_TABLES | PROJECTION_TABLES | ANALYSIS_TABLES | MEMORY_TABLES
-               | FTS_SHADOW_TABLES | {"alembic_version"})
+               | CHANGE_LOG_TABLES | FTS_SHADOW_TABLES | {"alembic_version"})
 NOW = datetime(2026, 3, 4, 12, 34, 56, 123456, tzinfo=timezone.utc)
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -303,10 +304,11 @@ def test_metadata_constraint_names_indexes_and_latest_alembic_check(database):
     # Phase 8 analysis ledger and the Phase 9 memory table: none of those migrations
     # adds a business fact table.
     assert set(Base.metadata.tables) == (FACT_TABLES | {"search_document"} | ANALYSIS_TABLES
-                                        | MEMORY_TABLES)
+                                        | MEMORY_TABLES | CHANGE_LOG_TABLES)
     assert len(FACT_TABLES) == 11
     assert FACT_TABLES.isdisjoint(ANALYSIS_TABLES)
     assert FACT_TABLES.isdisjoint(MEMORY_TABLES)
+    assert FACT_TABLES.isdisjoint(CHANGE_LOG_TABLES)
     assert "search_document_fts" not in Base.metadata.tables
     assert current_heads(engine) == ("0003_relationship",)
     expected_names = {
@@ -354,8 +356,9 @@ def test_metadata_constraint_names_indexes_and_latest_alembic_check(database):
     migrate(engine, migration, "0005_evidence")
     assert current_heads(engine) == ("0005_evidence",)
     # The Phase 4 assertions above stay frozen at 0004; the projection arrives only
-    # in 0006, the analysis ledger only in 0007 and the memory table only in 0008, so
-    # the database has to reach the current head before command.check().
+    # in 0006, the analysis ledger only in 0007, the memory table only in 0008 and the
+    # ChangeLog only in 0009, so the database has to reach the current head before
+    # command.check().
     migrate(engine, migration, "0006_search_projection")
     assert current_heads(engine) == ("0006_search_projection",)
     assert set(sa.inspect(engine).get_table_names()) == (
@@ -365,8 +368,8 @@ def test_metadata_constraint_names_indexes_and_latest_alembic_check(database):
     assert set(sa.inspect(engine).get_table_names()) == (
         FACT_TABLES | PROJECTION_TABLES | ANALYSIS_TABLES | FTS_SHADOW_TABLES
         | {"alembic_version"})
-    migrate(engine, migration, "0008_memory")
-    assert current_heads(engine) == ("0008_memory",)
+    migrate(engine, migration, "head")
+    assert current_heads(engine) == ("0009_change_log",)
     assert set(sa.inspect(engine).get_table_names()) == HEAD_TABLES
     with engine.connect() as connection:
         migration.attributes["connection"] = connection

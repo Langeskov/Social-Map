@@ -39,7 +39,8 @@ from app.storage.models import (
     RelationshipModel, WorkspaceModel,
 )
 from tests.migrations.schema_facts import (
-    ANALYSIS_RUN, ANALYSIS_TABLES, FACT_TABLES, MEMORY, MEMORY_INDEXES, MEMORY_TABLES,
+    ANALYSIS_RUN, ANALYSIS_TABLES, CHANGE_LOG_TABLES, FACT_TABLES, MEMORY,
+    MEMORY_INDEXES, MEMORY_TABLES,
     NOW, PROJECTION_OBJECTS, PROJECTION_TABLES, SEARCH_DOCUMENT_FTS,
     expected_head_tables, fts_shadow_tables,
 )
@@ -303,7 +304,7 @@ def fact_table_names(engine):
     """Only the business fact tables: every later group is filtered out."""
     names = set(sa.inspect(engine).get_table_names()) - {"alembic_version"}
     return (names - PROJECTION_OBJECTS - fts_shadow_tables(names) - ANALYSIS_TABLES
-            - MEMORY_TABLES)
+            - MEMORY_TABLES - CHANGE_LOG_TABLES)
 
 
 def assert_schema_matches_orm(engine, names):
@@ -376,9 +377,10 @@ def test_0007_to_0008_adds_only_the_memory_table_and_keeps_every_fact_table(tmp_
         assert raw_table_names(engine) & MEMORY_TABLES == MEMORY_TABLES
         # The complete schema is the fact tables plus the projection objects (the
         # FTS5 virtual table and the five shadow tables SQLite creates for it) plus
-        # the five analysis tables plus memory.
+        # the five analysis tables plus memory. 0009's ChangeLog is not created in
+        # this 0008 range.
         assert set(sa.inspect(engine).get_table_names()) == expected_head_tables(
-            raw_table_names(engine))
+            raw_table_names(engine)) - CHANGE_LOG_TABLES
         # Every object 0008 created is present, and no other name contains "memory".
         assert memory_objects(engine) == MEMORY_OBJECTS | autoindex_objects(engine)
         # SQLite materializes two automatic indexes: one for PRIMARY KEY (id), which
@@ -866,7 +868,7 @@ def test_offline_sql_renders_the_memory_ddl_and_executes_on_real_sqlite(tmp_path
         for name in sorted(MEMORY_INDEXES):
             assert f"CREATE INDEX {name} ON memory " in head_sql
         execute_script(head_sql)
-        assert current_heads(engine) == ("0008_memory",)
+        assert current_heads(engine) == ("0009_change_log",)
         assert memory_objects(engine) == MEMORY_OBJECTS | autoindex_objects(engine)
         assert fact_table_names(engine) == FACT_TABLES
         assert analysis_objects(engine) == ANALYSIS_TABLES
@@ -882,9 +884,10 @@ def test_offline_sql_renders_the_memory_ddl_and_executes_on_real_sqlite(tmp_path
         fact_before = fact_state(engine)
         analysis_before = analysis_state(engine)
 
-        downgrade_sql = offline_script("0008_memory:0007_analysis", down=True)
+        downgrade_sql = offline_script("0009_change_log:0007_analysis", down=True)
         for name in sorted(MEMORY_INDEXES):
             assert f"DROP INDEX {name}" in downgrade_sql
+        assert "DROP TABLE change_log" in downgrade_sql
         assert f"DROP TABLE {MEMORY}" in downgrade_sql
         # Every index is dropped before the table it belongs to.
         assert downgrade_sql.index(f"DROP TABLE {MEMORY}") > max(

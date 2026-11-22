@@ -20,6 +20,7 @@ from app.domain.entities import Memory
 from app.domain.errors import DomainError, NotFoundError
 from app.domain.validation import normalize_datetime, utc_now, validate_uuid
 from app.services.analysis_repositories import sql_analysis_repositories
+from app.services.change_snapshots import memory_state
 from app.services.memory_repositories import sql_memory_repositories
 from app.services.operations import write_operation
 from app.services.rules import workspace_required
@@ -30,11 +31,12 @@ logger = logging.getLogger(__name__)
 
 class MemoryService:
     def __init__(self, sessions, *, analysis_repositories=sql_analysis_repositories,
-                 repositories=sql_memory_repositories, clock=utc_now):
+                 repositories=sql_memory_repositories, clock=utc_now, changes=None):
         self._sessions = sessions
         self._analysis = analysis_repositories
         self._repositories = repositories
         self._clock = clock
+        self._changes = changes
 
     def _now(self):
         return normalize_datetime(self._clock(), "clock")
@@ -95,7 +97,13 @@ class MemoryService:
             repositories = self._repositories(session)
             workspace_required(repositories, workspace_id)
             self._require_person(repositories, workspace_id, entity.person_id)
-            return repositories.memories.save(entity)
+            saved = repositories.memories.save(entity)
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="MEMORY",
+                                     action="CREATE", entity=saved,
+                                     after=memory_state(saved))
+            return saved
 
     def create_from_analysis(self, workspace_id, analysis_run_id, content, *, kind, confirmed,
                              person_id=None, valid_from=None, valid_until=None) -> Memory:
@@ -124,7 +132,13 @@ class MemoryService:
             if run.status != "SUCCEEDED":
                 raise DomainError("只有成功的分析才能保存为 Memory。")
             self._require_person(repositories, workspace_id, entity.person_id)
-            return repositories.memories.save(entity)
+            saved = repositories.memories.save(entity)
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="MEMORY",
+                                     action="CREATE", entity=saved,
+                                     after=memory_state(saved))
+            return saved
 
     def update(self, workspace_id, memory_id, *, content=None, kind=None, person_id=None,
                clear_person=False, valid_from=None, valid_until=None, clear_valid_from=False,
@@ -157,7 +171,14 @@ class MemoryService:
             elif valid_until is not None:
                 changes["valid_until"] = normalize_datetime(valid_until, "valid_until")
             updated = replace(current, **changes)
-            return repositories.memories.update(updated)
+            before = memory_state(current) if self._changes is not None else None
+            saved = repositories.memories.update(updated)
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="MEMORY",
+                                     action="UPDATE", entity=saved, before=before,
+                                     after=memory_state(saved))
+            return saved
 
     def soft_delete(self, workspace_id, memory_id) -> Memory:
         """Soft delete only: the row, its provenance and the analysis run survive."""
@@ -170,7 +191,14 @@ class MemoryService:
             if current.deleted_at is not None:
                 raise DomainError("Memory 已经删除。")
             now = self._now()
-            return repositories.memories.update(replace(current, deleted_at=now, updated_at=now))
+            before = memory_state(current) if self._changes is not None else None
+            saved = repositories.memories.update(replace(current, deleted_at=now, updated_at=now))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="MEMORY",
+                                     action="ARCHIVE", entity=saved, before=before,
+                                     after=memory_state(saved))
+            return saved
 
     def restore(self, workspace_id, memory_id) -> Memory:
         with write_operation(self._sessions) as session:
@@ -181,8 +209,15 @@ class MemoryService:
                 raise NotFoundError("Memory 不属于当前 Workspace。")
             if current.deleted_at is None:
                 raise DomainError("Memory 没有被删除。")
-            return repositories.memories.update(replace(current, deleted_at=None,
+            before = memory_state(current) if self._changes is not None else None
+            saved = repositories.memories.update(replace(current, deleted_at=None,
                                                          updated_at=self._now()))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="MEMORY",
+                                     action="RESTORE", entity=saved, before=before,
+                                     after=memory_state(saved))
+            return saved
 
     # -------------------------------------------------------------- candidates
     def candidate_references(self, workspace_id, analysis_run_id):

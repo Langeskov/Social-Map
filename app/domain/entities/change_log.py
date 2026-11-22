@@ -44,7 +44,7 @@ ALLOWED_ACTIONS = {
 }
 
 #: Actions whose before-state does not exist (nothing was there before).
-_CREATE_LIKE = ("CREATE", "IMPORT")
+_CREATE_LIKE = ("CREATE", "IMPORT", "APPEND_HISTORY")
 
 
 def canonical_json(value) -> str:

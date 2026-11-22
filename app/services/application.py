@@ -13,6 +13,7 @@ from app.services.dashboard import DashboardService
 from app.services.analysis import AnalysisService
 from app.services.memory import MemoryService
 from app.services.backup import BackupService, BackupVerificationService
+from app.services.change_capture import ChangeLogWriter
 from app.services.export import WorkspaceExportService
 from app.services.integrity import DataIntegrityService
 from app.services.llm import LLMConfigStore, LLMGateway
@@ -41,16 +42,22 @@ class ApplicationServices:
 
 
 def create_application_services(config: AppConfig, sessions, *, llm_gateway=None) -> ApplicationServices:
-    workspaces = WorkspaceService(sessions)
+    # Change capture is composed here, once: every business service shares one
+    # writer, so the application always records audited writes in the same
+    # transaction as the business rows.
+    changes = ChangeLogWriter()
+    workspaces = WorkspaceService(sessions, changes=changes)
     store = MediaStore(config.storage_paths.data_dir)
-    media = MediaService(sessions, store)
-    people = PersonService(sessions, media)
+    media = MediaService(sessions, store, changes=changes)
+    people = PersonService(sessions, media, changes=changes)
     gateway = llm_gateway or LLMGateway(LLMConfigStore.for_data_dir(config.storage_paths.data_dir))
     return ApplicationServices(workspaces=workspaces, people=people, media=media,
-        initial_workspace=workspaces.ensure_default(), relationships=RelationshipService(sessions),
-        events=EventService(sessions), evidence=EvidenceService(sessions), search=SearchService(sessions),
+        initial_workspace=workspaces.ensure_default(), relationships=RelationshipService(sessions, changes=changes),
+        events=EventService(sessions, changes=changes), evidence=EvidenceService(sessions, changes=changes),
+        search=SearchService(sessions),
         timeline=TimelineService(sessions), dashboard=DashboardService(sessions),
-        llm=gateway, analysis=AnalysisService(sessions, gateway), memories=MemoryService(sessions),
+        llm=gateway, analysis=AnalysisService(sessions, gateway),
+        memories=MemoryService(sessions, changes=changes),
         integrity=DataIntegrityService(sessions, media_store=store),
         backups=BackupService(config), backup_verification=BackupVerificationService(config),
         exports=WorkspaceExportService(config, sessions))

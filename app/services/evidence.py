@@ -9,6 +9,7 @@ from uuid import UUID
 from app.domain.entities import Evidence, EvidenceMedia, Event, Media
 from app.domain.errors import ConflictError, DomainError, NotFoundError, WorkspaceMismatchError
 from app.domain.validation import normalize_datetime, utc_now, validate_text, validate_uuid
+from app.services.change_snapshots import evidence_state
 from app.services.evidence_repositories import sql_evidence_repositories
 from app.services.operations import write_operation
 from app.services.rules import workspace_required
@@ -55,8 +56,10 @@ class EvidenceService:
     SOURCE_TYPES = ("CHAT", "EMAIL", "DOCUMENT", "IMAGE", "FILE", "WEB", "MANUAL", "OTHER")
     METADATA = {"title", "annotation"}
 
-    def __init__(self, sessions, repositories=sql_evidence_repositories, *, clock=utc_now):
+    def __init__(self, sessions, repositories=sql_evidence_repositories, *, clock=utc_now,
+                 changes=None):
         self._sessions, self._repositories, self._clock = sessions, repositories, clock
+        self._changes = changes
 
     def _now(self):
         return normalize_datetime(self._clock(), "clock")
@@ -155,6 +158,11 @@ class EvidenceService:
             for item in items:
                 repositories.evidence_media.add(EvidenceMedia(workspace_id=workspace_id, evidence_id=saved.id,
                     media_id=item.media_id, role=item.role, created_at=now))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="EVIDENCE",
+                                     action="CREATE", entity=saved,
+                                     after=evidence_state(repositories, workspace_id, saved))
             return saved
 
     def update_metadata(self, workspace_id, evidence_id, **changes):
@@ -163,9 +171,17 @@ class EvidenceService:
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
             old = self._get(repositories, workspace_id, evidence_id)
+            before = (evidence_state(repositories, workspace_id, old)
+                      if self._changes is not None else None)
             # Re-validate through the Domain entity so text rules stay in one place.
             entity = replace(old, **changes, updated_at=self._changed_at(old))
-            return repositories.evidence.update_metadata(entity)
+            saved = repositories.evidence.update_metadata(entity)
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="EVIDENCE",
+                                     action="UPDATE", entity=saved, before=before,
+                                     after=evidence_state(repositories, workspace_id, saved))
+            return saved
 
     def get(self, workspace_id, evidence_id, *, include_deleted=False):
         with transaction(self._sessions) as session:
@@ -219,7 +235,15 @@ class EvidenceService:
             old = self._get(repositories, workspace_id, evidence_id, include_deleted=True)
             if old.deleted_at is not None:
                 return old
-            return repositories.evidence.soft_delete(workspace_id, evidence_id, self._changed_at(old))
+            before = (evidence_state(repositories, workspace_id, old)
+                      if self._changes is not None else None)
+            saved = repositories.evidence.soft_delete(workspace_id, evidence_id, self._changed_at(old))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="EVIDENCE",
+                                     action="ARCHIVE", entity=saved, before=before,
+                                     after=evidence_state(repositories, workspace_id, saved))
+            return saved
 
     def restore_evidence(self, workspace_id, evidence_id):
         with write_operation(self._sessions) as session:
@@ -229,7 +253,15 @@ class EvidenceService:
                 return old
             # Recovery only clears deleted_at: Event, media bindings and media bytes
             # are untouched, and no relationship or history is written.
-            return repositories.evidence.restore(workspace_id, evidence_id, self._changed_at(old))
+            before = (evidence_state(repositories, workspace_id, old)
+                      if self._changes is not None else None)
+            saved = repositories.evidence.restore(workspace_id, evidence_id, self._changed_at(old))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="EVIDENCE",
+                                     action="RESTORE", entity=saved, before=before,
+                                     after=evidence_state(repositories, workspace_id, saved))
+            return saved
 
     def add_media(self, workspace_id, evidence_id, media_id, role=None, *, expected_attachment_ids=ANY_ATTACHMENTS):
         item = MediaInput(media_id, role)
@@ -244,10 +276,17 @@ class EvidenceService:
             existing = repositories.evidence_media.list_by_evidence(workspace_id, evidence_id)
             if any(link.media_id == item.media_id and link.role == item.role for link in existing):
                 raise ConflictError("该 Media 已经附加到此证据。")
+            before = (evidence_state(repositories, workspace_id, old, media=existing)
+                      if self._changes is not None else None)
             now = self._changed_at(old)
             link = repositories.evidence_media.add(EvidenceMedia(workspace_id=workspace_id,
                 evidence_id=evidence_id, media_id=item.media_id, role=item.role, created_at=now))
-            repositories.evidence.update_metadata(replace(old, updated_at=now))
+            saved = repositories.evidence.update_metadata(replace(old, updated_at=now))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="EVIDENCE",
+                                     action="UPDATE", entity=saved, before=before,
+                                     after=evidence_state(repositories, workspace_id, saved))
             return link
 
     def remove_media(self, workspace_id, evidence_id, media_id, *, role=ANY_ROLE,
@@ -267,6 +306,13 @@ class EvidenceService:
             if old.kind in MEDIA_KINDS and not remaining:
                 raise ConflictError("IMAGE／FILE 证据必须至少保留一个附件；"
                                     "若附件确实有误，请软删除该证据后重新创建。")
+            before = (evidence_state(repositories, workspace_id, old, media=links)
+                      if self._changes is not None else None)
             repositories.evidence_media.remove(workspace_id, evidence_id, media_id,
                                                None if role is ANY_ROLE else role)
-            repositories.evidence.update_metadata(replace(old, updated_at=self._changed_at(old)))
+            saved = repositories.evidence.update_metadata(replace(old, updated_at=self._changed_at(old)))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="EVIDENCE",
+                                     action="UPDATE", entity=saved, before=before,
+                                     after=evidence_state(repositories, workspace_id, saved))

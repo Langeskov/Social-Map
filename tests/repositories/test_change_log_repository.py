@@ -24,7 +24,7 @@ def make_entry(workspace_id, *, entity_type="PERSON", entity_id=None, action="UP
                parent=None, metadata=None, changed_fields=("display_name",),
                recorded_at=NOW, payload_version="1"):
     entity_id = entity_id or uuid4()
-    if before is None and action not in ("CREATE", "IMPORT"):
+    if before is None and action not in ("CREATE", "IMPORT", "APPEND_HISTORY"):
         before = {"display_name": "Old"}
     if after is None:
         after = {"display_name": "New"}
@@ -125,8 +125,7 @@ def test_pagination_and_parent_queries(runtime, workspace):
         repository.add(make_entry(
             workspace.id, entity_type="RELATIONSHIP_HISTORY", entity_id=history_id,
             action="APPEND_HISTORY", changed_fields=(),
-            before={"state": "OLD"}, after={"state": "NEW"},
-            parent=("RELATIONSHIP", relationship)))
+            after={"state": "NEW"}, parent=("RELATIONSHIP", relationship)))
         assert [row.revision_no for row in repository.list_by_entity(
             workspace.id, "EVENT", relationship, limit=2, offset=1)] == [2, 3]
         parent_rows = repository.list_by_parent(workspace.id, "RELATIONSHIP", relationship)

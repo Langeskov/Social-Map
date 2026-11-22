@@ -49,7 +49,8 @@ def workspaces(runtime):
 
 def entry(workspace_id, *, entity_type="PERSON", entity_id=None, revision_no=1,
           operation_id=None, recorded_at=NOW, action="UPDATE", parent=None):
-    before = {"display_name": "Old"} if action not in ("CREATE", "IMPORT") else None
+    before = (None if action in ("CREATE", "IMPORT", "APPEND_HISTORY")
+              else {"display_name": "Old"})
     after = {"display_name": "New"}
     parent_type, parent_id = (None, None) if parent is None else parent
     return ChangeLogEntry(

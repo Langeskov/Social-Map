@@ -5,6 +5,7 @@ from uuid import UUID
 from app.domain.entities import Event, EventParticipant, Person, Relationship, RelationshipHistory
 from app.domain.errors import ConflictError, DomainError, NotFoundError, WorkspaceMismatchError
 from app.domain.validation import normalize_datetime, utc_now, validate_text, validate_uuid
+from app.services.change_snapshots import event_state, history_state
 from app.services.event_repositories import sql_event_repositories
 from app.services.operations import write_operation
 from app.services.rules import workspace_required
@@ -50,8 +51,10 @@ class EventDetail:
 class EventService:
     EDITABLE = {"title", "event_type", "record_kind", "occurred_on", "started_at", "ended_at", "location", "description"}
 
-    def __init__(self, sessions, repositories=sql_event_repositories, *, clock=utc_now):
+    def __init__(self, sessions, repositories=sql_event_repositories, *, clock=utc_now,
+                 changes=None):
         self._sessions, self._repositories, self._clock = sessions, repositories, clock
+        self._changes = changes
 
     def _now(self):
         return normalize_datetime(self._clock(), "clock")
@@ -120,6 +123,11 @@ class EventService:
             for item in inputs:
                 repositories.participants.add(EventParticipant(workspace_id=workspace_id, event_id=entity.id,
                     person_id=item.person_id, role=item.role, note=item.note, created_at=now))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="EVENT",
+                                     action="CREATE", entity=saved,
+                                     after=event_state(repositories, workspace_id, saved))
             return saved
 
     def update_event(self, workspace_id, id, **changes):
@@ -130,6 +138,8 @@ class EventService:
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
             old = self._get(repositories, workspace_id, id)
+            before = (event_state(repositories, workspace_id, old)
+                      if self._changes is not None else None)
             entity = replace(old, **changes, updated_at=self._changed_at(old))
             current = {item.person_id: item for item in repositories.participants.list_by_event(workspace_id, id)}
             if inputs is not None:
@@ -148,6 +158,11 @@ class EventService:
                     else:
                         repositories.participants.add(EventParticipant(workspace_id=workspace_id, event_id=id,
                             person_id=item.person_id, role=item.role, note=item.note, created_at=entity.updated_at))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="EVENT",
+                                     action="UPDATE", entity=saved, before=before,
+                                     after=event_state(repositories, workspace_id, saved))
             return saved
 
     def get(self, workspace_id, id, *, include_deleted=False):
@@ -185,7 +200,15 @@ class EventService:
             old = self._get(repositories, workspace_id, id, include_deleted=True)
             if old.deleted_at is not None:
                 return old
-            return repositories.events.soft_delete(workspace_id, id, self._changed_at(old))
+            before = (event_state(repositories, workspace_id, old)
+                      if self._changes is not None else None)
+            saved = repositories.events.soft_delete(workspace_id, id, self._changed_at(old))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="EVENT",
+                                     action="ARCHIVE", entity=saved, before=before,
+                                     after=event_state(repositories, workspace_id, saved))
+            return saved
 
     def restore_event(self, workspace_id, id):
         with write_operation(self._sessions) as session:
@@ -194,20 +217,35 @@ class EventService:
             if old.deleted_at is None:
                 return old
             # Recovery clears deleted_at; neither participants nor relationship states are rewritten.
-            return repositories.events.restore(workspace_id, id, self._changed_at(old))
+            before = (event_state(repositories, workspace_id, old)
+                      if self._changes is not None else None)
+            saved = repositories.events.restore(workspace_id, id, self._changed_at(old))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="EVENT",
+                                     action="RESTORE", entity=saved, before=before,
+                                     after=event_state(repositories, workspace_id, saved))
+            return saved
 
     def add_participant(self, workspace_id, event_id, person_id, role=None, note=None):
         item = ParticipantInput(person_id, role, note)
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
             old = self._get(repositories, workspace_id, event_id)
+            before = (event_state(repositories, workspace_id, old)
+                      if self._changes is not None else None)
             self._validate_people(repositories, workspace_id, (item,))
             if any(entry.person_id == person_id for entry in repositories.participants.list_by_event(workspace_id, event_id)):
                 raise ConflictError("该人物已经是 Event 的 Participant。")
             now = self._changed_at(old)
             participant = repositories.participants.add(EventParticipant(workspace_id=workspace_id, event_id=event_id,
                 person_id=person_id, role=role, note=note, created_at=now))
-            repositories.events.update(replace(old, updated_at=now))
+            saved = repositories.events.update(replace(old, updated_at=now))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="EVENT",
+                                     action="UPDATE", entity=saved, before=before,
+                                     after=event_state(repositories, workspace_id, saved))
             return participant
 
     def remove_participant(self, workspace_id, event_id, person_id):
@@ -218,8 +256,16 @@ class EventService:
             current = repositories.participants.list_by_event(workspace_id, event_id)
             if not any(item.person_id == person_id for item in current):
                 raise NotFoundError("人物不是当前 Event 的 Participant。")
+            before = (event_state(repositories, workspace_id, old, participants=current)
+                      if self._changes is not None else None)
             repositories.participants.remove(workspace_id, event_id, person_id)
-            repositories.events.update(replace(old, updated_at=self._changed_at(old)))
+            saved = repositories.events.update(replace(old, updated_at=self._changed_at(old)))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="EVENT",
+                                     action="UPDATE", entity=saved, before=before,
+                                     after=event_state(repositories, workspace_id, saved))
+            return saved
 
     def attach_event_to_history(self, workspace_id, history_id, event_id, *, expected_event_id=ANY_EVENT):
         validate_uuid(workspace_id, "workspace_id")
@@ -243,7 +289,16 @@ class EventService:
                 # Retained deleted Events are valid historical references, not active events.
                 if repositories.events.get(workspace_id, event_id, include_deleted=True) is None:
                     raise WorkspaceMismatchError("Event 不存在或不属于 History 的 Workspace。")
-            return repositories.histories.attach_event(workspace_id, history_id, event_id)
+            before = history_state(history) if self._changes is not None else None
+            saved = repositories.histories.attach_event(workspace_id, history_id, event_id)
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(
+                    session, context, entity_type="RELATIONSHIP_HISTORY",
+                    action="ATTACH_EVENT" if event_id is not None else "DETACH_EVENT",
+                    entity=saved, before=before, after=history_state(saved),
+                    parent=("RELATIONSHIP", history.relationship_id))
+            return saved
 
     def attach_relationship_history(self, workspace_id, history_id, event_id, *, expected_event_id=ANY_EVENT):
         return self.attach_event_to_history(workspace_id, history_id, event_id,

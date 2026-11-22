@@ -9,6 +9,7 @@ from app.services.repositories import sql_repositories
 from app.services.unit_of_work import transaction
 from app.services.operations import write_operation
 from app.services.rules import workspace_required, person_required
+from app.services.change_snapshots import person_state
 from app.services.person_links import attach_media
 
 @dataclass(frozen=True)
@@ -25,8 +26,10 @@ class PersonDetail:
 class PersonService:
     EDITABLE = {"display_name", "real_name", "gender", "birthday", "occupation", "organization", "location", "notes"}
 
-    def __init__(self, sessions, media_service=None, repositories=sql_repositories):
+    def __init__(self, sessions, media_service=None, repositories=sql_repositories, *,
+                 changes=None):
         self._sessions, self._media, self._repositories = sessions, media_service, repositories
+        self._changes = changes
 
     def list(self, workspace_id: UUID, search: str = "", *, include_deleted: bool = False) -> list[Person]:
         """List people of one workspace; archived people are opt-in.
@@ -81,12 +84,23 @@ class PersonService:
         if avatar_path is not None:
             if self._media is None:
                 raise DomainError("媒体服务不可用。")
-            self._media.import_file(workspace_id, avatar_path, role="AVATAR", _new_person=entity)
+            operation = self._changes.begin(workspace_id) if self._changes is not None else None
+            # The person row is saved inside the media transaction, so the capture
+            # happens there under this operation context (media import + person create).
+            self._media.import_file(workspace_id, avatar_path, role="AVATAR",
+                                    _new_person=entity, operation=operation)
             return entity
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
             workspace_required(repositories, workspace_id)
-            return repositories.people.save(entity)
+            saved = repositories.people.save(entity)
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="PERSON",
+                                     action="CREATE", entity=saved,
+                                     after=person_state(repositories, workspace_id, saved,
+                                                        aliases=(), images=()))
+            return saved
 
     def update(self, workspace_id: UUID, person_id: UUID, **changes) -> Person:
         if set(changes) - self.EDITABLE:
@@ -96,46 +110,95 @@ class PersonService:
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
             old = person_required(repositories, workspace_id, person_id)
-            return repositories.people.save(replace(old, **changes, updated_at=utc_now()))
+            before = (person_state(repositories, workspace_id, old)
+                      if self._changes is not None else None)
+            saved = repositories.people.save(replace(old, **changes, updated_at=utc_now()))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="PERSON",
+                                     action="UPDATE", entity=saved, before=before,
+                                     after=person_state(repositories, workspace_id, saved))
+            return saved
 
     def soft_delete(self, workspace_id: UUID, person_id: UUID) -> None:
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
             old = person_required(repositories, workspace_id, person_id)
+            before = (person_state(repositories, workspace_id, old)
+                      if self._changes is not None else None)
             repositories.person_media.remove_for_person(workspace_id, person_id)
             now = utc_now()
-            repositories.people.save(replace(old, deleted_at=now, updated_at=now))
+            saved = repositories.people.save(replace(old, deleted_at=now, updated_at=now))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="PERSON",
+                                     action="ARCHIVE", entity=saved, before=before,
+                                     after=person_state(repositories, workspace_id, saved))
 
     def add_alias(self, workspace_id: UUID, person_id: UUID, alias: str, alias_type: str = "OTHER", note: str | None = None) -> PersonAlias:
         entity = PersonAlias(workspace_id=workspace_id, person_id=person_id,
                              alias=alias.strip() if isinstance(alias, str) else alias, alias_type=alias_type, note=note)
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
-            person_required(repositories, workspace_id, person_id)
-            return repositories.aliases.save(entity)
+            person = person_required(repositories, workspace_id, person_id)
+            before = (person_state(repositories, workspace_id, person)
+                      if self._changes is not None else None)
+            saved = repositories.aliases.save(entity)
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="PERSON",
+                                     action="UPDATE", entity=person, before=before,
+                                     after=person_state(repositories, workspace_id, person))
+            return saved
 
     def remove_alias(self, workspace_id: UUID, person_id: UUID, alias_id: UUID) -> None:
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
-            person_required(repositories, workspace_id, person_id)
+            person = person_required(repositories, workspace_id, person_id)
             alias = repositories.aliases.get(workspace_id, alias_id)
             if alias is None or alias.person_id != person_id:
                 raise NotFoundError("别称不属于当前人物。")
+            before = (person_state(repositories, workspace_id, person)
+                      if self._changes is not None else None)
             repositories.aliases.remove(workspace_id, alias_id)
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="PERSON",
+                                     action="UPDATE", entity=person, before=before,
+                                     after=person_state(repositories, workspace_id, person))
 
     def set_avatar(self, workspace_id: UUID, person_id: UUID, media_id: UUID) -> PersonMedia:
-        with write_operation(self._sessions) as session:
-            return attach_media(self._repositories(session), workspace_id, person_id, media_id, "AVATAR")
+        return self._attach(workspace_id, person_id, media_id, "AVATAR")
 
     def add_gallery(self, workspace_id: UUID, person_id: UUID, media_id: UUID) -> PersonMedia:
+        return self._attach(workspace_id, person_id, media_id, "GALLERY")
+
+    def _attach(self, workspace_id, person_id, media_id, role):
         with write_operation(self._sessions) as session:
-            return attach_media(self._repositories(session), workspace_id, person_id, media_id, "GALLERY")
+            repositories = self._repositories(session)
+            person = person_required(repositories, workspace_id, person_id)
+            before = (person_state(repositories, workspace_id, person)
+                      if self._changes is not None else None)
+            link = attach_media(repositories, workspace_id, person_id, media_id, role)
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="PERSON",
+                                     action="UPDATE", entity=person, before=before,
+                                     after=person_state(repositories, workspace_id, person))
+            return link
 
     def remove_media_reference(self, workspace_id: UUID, person_id: UUID, link_id: UUID) -> None:
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
-            person_required(repositories, workspace_id, person_id)
+            person = person_required(repositories, workspace_id, person_id)
             link = repositories.person_media.get(workspace_id, link_id)
             if link is None or link.person_id != person_id:
                 raise NotFoundError("图片引用不属于当前人物。")
+            before = (person_state(repositories, workspace_id, person)
+                      if self._changes is not None else None)
             repositories.person_media.remove(workspace_id, link_id)
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="PERSON",
+                                     action="UPDATE", entity=person, before=before,
+                                     after=person_state(repositories, workspace_id, person))

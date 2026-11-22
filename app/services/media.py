@@ -11,21 +11,24 @@ from app.services.repositories import sql_repositories
 from app.services.operations import write_operation
 from app.services.unit_of_work import transaction
 from app.services.rules import workspace_required, person_required, media_required
+from app.services.change_snapshots import media_state, person_state
 from app.services.person_links import attach_media
 from app.storage.database import DatabaseError
 
 logger = logging.getLogger(__name__)
 
 class MediaService:
-    def __init__(self, sessions, store, repositories=sql_repositories):
+    def __init__(self, sessions, store, repositories=sql_repositories, *, changes=None):
         self._sessions, self.store, self._repositories = sessions, store, repositories
+        self._changes = changes
 
     def get(self, workspace_id: UUID, media_id: UUID) -> Media:
         with transaction(self._sessions) as session:
             return media_required(self._repositories(session), workspace_id, media_id)
 
     def import_file(self, workspace_id: UUID, source: Path, *, person_id: UUID | None = None,
-                    role: str = "GALLERY", _new_person: Person | None = None) -> Media:
+                    role: str = "GALLERY", _new_person: Person | None = None,
+                    operation=None) -> Media:
         with transaction(self._sessions) as session:
             repositories = self._repositories(session)
             workspace_required(repositories, workspace_id)
@@ -33,6 +36,8 @@ class MediaService:
                 person_required(repositories, workspace_id, person_id)
             if _new_person is not None and _new_person.workspace_id != workspace_id:
                 raise DomainError("新人物与导入 Workspace 不一致。")
+        if self._changes is not None and operation is None:
+            operation = self._changes.begin(workspace_id)
         staged = self.store.stage(Path(source))
         try:
             if (person_id is not None or _new_person is not None) and (not staged.mime_type.startswith("image/") or staged.width is None):
@@ -42,7 +47,7 @@ class MediaService:
                 try:
                     for attempt in range(2):
                         try:
-                            return self._persist(workspace_id, staged, receipt, person_id, role, _new_person)
+                            return self._persist(workspace_id, staged, receipt, person_id, role, _new_person, operation)
                         except DatabaseError as exc:
                             # Database UNIQUE is final authority even if a writer
                             # outside our lock protocol raced with this operation.
@@ -64,10 +69,15 @@ class MediaService:
                 # staging cleanup failed. Leftovers are not effective media.
                 logger.error("Media staging cleanup failed: type=%s", type(exc).__name__)
 
-    def _persist(self, workspace_id, staged, receipt, person_id, role, new_person):
+    def _persist(self, workspace_id, staged, receipt, person_id, role, new_person, operation=None):
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
             workspace_required(repositories, workspace_id)
+            person_before = None
+            if person_id is not None and self._changes is not None:
+                existing_person = repositories.people.get(workspace_id, person_id)
+                if existing_person is not None:
+                    person_before = person_state(repositories, workspace_id, existing_person)
             if new_person is not None:
                 if repositories.people.get(workspace_id, new_person.id, include_deleted=True) is not None:
                     raise ConflictError("人物 ID 已存在。")
@@ -76,6 +86,7 @@ class MediaService:
             if person_id is not None:
                 person_required(repositories, workspace_id, person_id)
             old = repositories.media.get_by_hash(workspace_id, staged.sha256, include_deleted=True)
+            media_created = old is None or old.deleted_at is not None
             if old is not None:
                 if old.storage_path != receipt.storage_path or old.size_bytes != staged.size_bytes:
                     raise MediaValidationError("已有媒体元数据与内容寻址文件不一致，未覆盖原文件。")
@@ -86,6 +97,18 @@ class MediaService:
                     height=staged.height, storage_path=receipt.storage_path))
             if person_id is not None:
                 attach_media(repositories, workspace_id, person_id, media.id, role)
+            if self._changes is not None and operation is not None:
+                if media_created:
+                    self._changes.record(session, operation, entity_type="MEDIA",
+                                         action="IMPORT", entity=media,
+                                         after=media_state(media))
+                person = repositories.people.get(workspace_id, person_id) if person_id is not None else None
+                if person is not None:
+                    after = person_state(repositories, workspace_id, person)
+                    self._changes.record(
+                        session, operation, entity_type="PERSON",
+                        action="CREATE" if new_person is not None else "UPDATE",
+                        entity=person, before=person_before, after=after)
             return media
 
     def _compensate(self, workspace_id, sha256, receipt):
@@ -110,8 +133,14 @@ class MediaService:
                 media = media_required(repositories, workspace_id, media_id)
                 if repositories.media.has_references(workspace_id, media_id):
                     raise ConflictError("媒体仍被人物或证据引用，不能删除。")
+                before = media_state(media) if self._changes is not None else None
                 now = utc_now()
-                repositories.media.save(replace(media, deleted_at=now, updated_at=now))
+                saved = repositories.media.save(replace(media, deleted_at=now, updated_at=now))
+                if self._changes is not None:
+                    context = self._changes.begin(workspace_id)
+                    self._changes.record(session, context, entity_type="MEDIA",
+                                         action="ARCHIVE", entity=saved, before=before,
+                                         after=media_state(saved))
         # Physical bytes remain immutable and available for reactivation.
 
     def original_path(self, workspace_id: UUID, media_id: UUID) -> Path:

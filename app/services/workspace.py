@@ -4,14 +4,16 @@ from uuid import UUID
 from app.domain.entities import Workspace
 from app.domain.errors import ConflictError, DomainError
 from app.domain.validation import utc_now
+from app.services.change_snapshots import workspace_state
 from app.services.unit_of_work import transaction
 from app.services.operations import write_operation
 from app.services.repositories import sql_repositories
 from app.services.rules import workspace_required
 
 class WorkspaceService:
-    def __init__(self, sessions, repositories=sql_repositories):
+    def __init__(self, sessions, repositories=sql_repositories, *, changes=None):
         self._sessions, self._repositories = sessions, repositories
+        self._changes = changes
 
     def list(self) -> list[Workspace]:
         with transaction(self._sessions) as session:
@@ -40,7 +42,13 @@ class WorkspaceService:
             repository = self._repositories(session).workspaces
             if repository.get_by_name(entity.name, include_deleted=True):
                 raise ConflictError("Workspace 名称已存在（包括已归档 Workspace）。")
-            return repository.save(entity)
+            saved = repository.save(entity)
+            if self._changes is not None:
+                context = self._changes.begin(saved.id)
+                self._changes.record(session, context, entity_type="WORKSPACE",
+                                     action="CREATE", entity=saved,
+                                     after=workspace_state(saved))
+            return saved
 
     def update(self, workspace_id: UUID, *, name: str, description: str | None = None) -> Workspace:
         with write_operation(self._sessions) as session:
@@ -49,7 +57,14 @@ class WorkspaceService:
             collision = repositories.workspaces.get_by_name(name.strip(), include_deleted=True)
             if collision and collision.id != old.id:
                 raise ConflictError("Workspace 名称已存在。")
-            return repositories.workspaces.save(replace(old, name=name.strip(), description=description, updated_at=utc_now()))
+            before = workspace_state(old) if self._changes is not None else None
+            saved = repositories.workspaces.save(replace(old, name=name.strip(), description=description, updated_at=utc_now()))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="WORKSPACE",
+                                     action="UPDATE", entity=saved, before=before,
+                                     after=workspace_state(saved))
+            return saved
 
     def soft_delete(self, workspace_id: UUID) -> None:
         with write_operation(self._sessions) as session:
@@ -57,5 +72,11 @@ class WorkspaceService:
             old = workspace_required(repositories, workspace_id)
             if repositories.people.list(workspace_id) or repositories.media.list(workspace_id):
                 raise DomainError("Workspace 中仍有有效人物或媒体，不能归档。")
+            before = workspace_state(old) if self._changes is not None else None
             now = utc_now()
-            repositories.workspaces.save(replace(old, deleted_at=now, updated_at=now))
+            saved = repositories.workspaces.save(replace(old, deleted_at=now, updated_at=now))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="WORKSPACE",
+                                     action="ARCHIVE", entity=saved, before=before,
+                                     after=workspace_state(saved))

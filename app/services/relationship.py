@@ -5,6 +5,7 @@ from uuid import UUID
 from app.domain.entities import Relationship, RelationshipHistory
 from app.domain.errors import ConflictError, DomainError, NotFoundError, WorkspaceMismatchError
 from app.domain.validation import normalize_datetime, utc_now, validate_text, validate_uuid
+from app.services.change_snapshots import history_state, relationship_state
 from app.services.relationship_repositories import sql_relationship_repositories
 from app.services.rules import workspace_required
 from app.services.operations import write_operation
@@ -42,8 +43,10 @@ class RelationshipService:
     STATES = {"ACTIVE", "PAUSED", "ENDED"}
     DIRECTIONS = {"UNDIRECTED", "DIRECTED"}
 
-    def __init__(self, sessions, repositories=sql_relationship_repositories, *, clock=utc_now):
+    def __init__(self, sessions, repositories=sql_relationship_repositories, *, clock=utc_now,
+                 changes=None):
         self._sessions, self._repositories, self._clock = sessions, repositories, clock
+        self._changes = changes
 
     def _now(self):
         return normalize_datetime(self._clock(), "clock")
@@ -108,7 +111,16 @@ class RelationshipService:
                     raise ConflictError("同身份关系已删除，请恢复原记录，而不是创建第二条。")
                 raise ConflictError("同身份关系已经存在。结束或恢复状态请追加历史，不要重复创建。")
             saved = repositories.relationships.save(entity)
-            repositories.histories.add(history)
+            history = repositories.histories.add(history)
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="RELATIONSHIP",
+                                     action="CREATE", entity=saved,
+                                     after=relationship_state(saved))
+                self._changes.record(
+                    session, context, entity_type="RELATIONSHIP_HISTORY",
+                    action="APPEND_HISTORY", entity=history, after=history_state(history),
+                    parent=("RELATIONSHIP", saved.id))
             return saved
 
     def get(self, workspace_id: UUID, id: UUID, *, include_deleted=False) -> Relationship:
@@ -168,6 +180,12 @@ class RelationshipService:
             self._endpoints(repositories, workspace_id, entity.person_a_id, entity.person_b_id)
             added = repositories.histories.add(entry)
             repositories.relationships.update(replace(entity, updated_at=now))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(
+                    session, context, entity_type="RELATIONSHIP_HISTORY",
+                    action="APPEND_HISTORY", entity=added, after=history_state(added),
+                    parent=("RELATIONSHIP", entity.id))
             return added
 
     def soft_delete(self, workspace_id: UUID, id: UUID) -> Relationship:
@@ -177,7 +195,14 @@ class RelationshipService:
             if entity.deleted_at is not None:
                 return entity
             # Deleting an erroneous record does not invent an ENDED history.
-            return repositories.relationships.soft_delete(workspace_id, id, self._now())
+            before = relationship_state(entity) if self._changes is not None else None
+            saved = repositories.relationships.soft_delete(workspace_id, id, self._now())
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="RELATIONSHIP",
+                                     action="ARCHIVE", entity=saved, before=before,
+                                     after=relationship_state(saved))
+            return saved
 
     def restore(self, workspace_id: UUID, id: UUID) -> Relationship:
         with write_operation(self._sessions) as session:
@@ -188,4 +213,12 @@ class RelationshipService:
                 return entity
             # Lifecycle recovery keeps all past states. ACTIVE is an explicit
             # subsequent state-history operation, never an implicit field edit.
-            return repositories.relationships.update(replace(entity, deleted_at=None, updated_at=self._now()))
+            before = relationship_state(entity) if self._changes is not None else None
+            saved = repositories.relationships.update(
+                replace(entity, deleted_at=None, updated_at=self._now()))
+            if self._changes is not None:
+                context = self._changes.begin(workspace_id)
+                self._changes.record(session, context, entity_type="RELATIONSHIP",
+                                     action="RESTORE", entity=saved, before=before,
+                                     after=relationship_state(saved))
+            return saved

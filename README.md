@@ -2,12 +2,12 @@
 
 本地优先的人际关系知识库：PySide6 桌面应用，SQLite + SQLAlchemy + Alembic，单用户、不联网、不同步、无账号。**所有模型调用必须由用户显式触发，模型输出永远不是事实。**
 
-当前状态：**Phase 1–13 完成（含 13.5 遥测重试次数小修复）**。Phase 13（Analysis Quality & Evaluation）交付结构化结果契约、来源曝光契约与引用验证、可复现运行遥测、模型评估与对比；Phase 12（人物调查工作台）与 Phase 10 稳定性能力保持不变。最新全量回归：**1660 collected / 1655 passed / 5 environment-skipped / 0 failed（退出码 0）**。
+当前状态：**Phase 1–13 完成（含 13.5 遥测重试次数小修复）；Phase 14（Revision & ChangeLog）14.0 设计阶段完成、代码与迁移尚未开始**。Phase 13（Analysis Quality & Evaluation）交付结构化结果契约、来源曝光契约与引用验证、可复现运行遥测、模型评估与对比；Phase 12（人物调查工作台）与 Phase 10 稳定性能力保持不变。最新全量回归：**1660 collected / 1655 passed / 5 environment-skipped / 0 failed（退出码 0）**。
 
 ## 核心原则
 
 - **事实层**（11 张业务表）只由用户录入与编辑；**Memory** 是用户确认过的长期语义（USER）；模型输出/推断/派生（DERIVED）永不写回事实。
-- 无 Sync / ChangeLog / Revision / OCR / RAG / 向量库 / 自动 Memory / 自动关系判断；程序不插入示例数据。
+- 无 Sync / OCR / RAG / 向量库 / 自动 Memory / 自动关系判断；程序不插入示例数据。Phase 14 将按设计文档提供**受审计范围限制**的 ChangeLog / Revision（实体修订历史），当前尚未实现。
 - 模型调用由用户点击触发；`include_memories` 默认关闭；分析、评估、审计都不修改事实。
 - 单一 Workspace 上下文与 Context Reset；界面不显示开发阶段编号；无动画。
 
@@ -108,11 +108,11 @@ Remove-Item -Recurse -Force .test-runs, .pytest_cache -ErrorAction SilentlyConti
 ## 文档索引
 
 - 设计与领域：[架构](<docs/architecture.md>)、[数据库](<docs/database.md>)、[投影层](<docs/projection.md>)、[分析层](<docs/analysis.md>)、[Memory](<docs/memory.md>)、[数据管理](<docs/operations.md>)、[证据](<docs/evidence.md>)、[事件](<docs/events.md>)、[关系](<docs/relationships.md>)、[媒体](<docs/media.md>)
-- Phase 记录：[Phase 10](<docs/phase10-verification.md>)、[Phase 11](<docs/phase11-verification.md>)、[Phase 12](<docs/phase12-verification.md>)、[Phase 13 评估设计](<docs/phase13-evaluation.md>)、[Phase 13 验收](<docs/phase13-verification.md>)
+- Phase 记录：[Phase 10](<docs/phase10-verification.md>)、[Phase 11](<docs/phase11-verification.md>)、[Phase 12](<docs/phase12-verification.md>)、[Phase 13 评估设计](<docs/phase13-evaluation.md>)、[Phase 13 验收](<docs/phase13-verification.md>)、[Phase 14 ChangeLog 设计](<docs/phase14-design.md>)、[Phase 14 验收](<docs/phase14-verification.md>)
 
 ## 边界与已知局限
 
-- 不做 Revision / ChangeLog / Sync / 云 / 多用户 / OCR / RAG / 向量库 / 自动 Memory / 自动模型调用。
+- 不做 Sync / 云 / 多用户 / OCR / RAG / 向量库 / 自动 Memory / 自动模型调用；Phase 14 的变更历史仅限设计文档声明的实体与操作范围（见 [Phase 14 ChangeLog 设计](<docs/phase14-design.md>)）。
 - 分析层、评估层只读事实；评估产物只存本地 `evaluation-runs/`，不进入仓库、不写生产分析历史。
 - 自动评估指标只判断结构与引用合法性；语义质量仍需人工复核（报告显式列出复核清单）。
 - 尚未宣称：wheel/exe 分发、真实 Windows DPI 人工验收、安装包、完整 backup/GC/崩溃恢复。
@@ -120,4 +120,4 @@ Remove-Item -Recurse -Force .test-runs, .pytest_cache -ErrorAction SilentlyConti
 
 ## 下一步
 
-Phase 13 已完成，不会自动进入下一阶段。后续工作（如独立 Evaluation Viewer、人工复核结果采集、Judge 实验记录、Revision 等）需用户明确指派。代码已发布到用户自有 GitHub 仓库（origin: Langeskov/Social-Map）；仓库无自动同步、无 CI。
+Phase 14.0（ChangeLog 设计）已完成，等待用户审核；14.1–14.4 需用户逐阶段明确指派，不会自动推进。代码已发布到用户自有 GitHub 仓库（origin: Langeskov/Social-Map）；仓库无自动同步、无 CI。

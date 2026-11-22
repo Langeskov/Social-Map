@@ -321,6 +321,91 @@ EvidenceMedia（聚合快照）／Workspace／Memory 的真实业务 Service。�
 
 ---
 
+## Phase 14.3 — Revision History & Diff Viewer
+
+### 1. 本阶段结论
+
+**完成**：提供稳定的只读历史查询/分页/操作组/字段差异能力，并实现 Person/Event/
+Evidence/Relationship/Memory 的历史入口对话框。可访问已归档实体历史；旧数据明确提示
+"不可恢复/不补录"；未知或损坏快照降级显示而不崩溃；**没有任何恢复/撤销行为**（14.4）。
+
+### 2. 实际修改内容
+
+- **Service**：新增 `app/services/change_history.py`（`ChangeHistoryService`：
+  `entity_history` 新版在前分页、`parent_history`、`revision`、`operation`、`diff`/
+  `adjacent_diff`；中文字段/实体/动作标签与值格式化；`HistoryPage.legacy_hint`）。
+- **Domain/Storage**：`ChangeLogEntry.snapshot_error` 可选字段；Repository 容错解码
+  （未知 payload_version / 损坏 JSON → 行仍可读、标记不可 diff）；变更
+  `list_by_entity(newest_first=True)` 查询参数（默认保持旧行为）。
+- **Application**：`ApplicationServices.change_history` 装配只读服务。
+- **UI**：新增 `app/ui/revision_history.py`（只读 `RevisionHistoryDialog` +
+  `OperationDialog` + `LongTextDialog`）；入口：People 人物操作区"历史"、Event 详情、
+  Evidence 面板、Relationship 面板、Memory 面板；关系显示"状态历史（追加记录）"分区。
+- **Docs**：设计文档 §20、architecture、README、本记录。
+- **未改**：无 schema/migration（仍 0009）；无恢复；历史记录不可修改；未补录旧历史。
+
+### 3. 关键设计决定
+
+1. **只读优先**：查询/差异/UI 全部只读；不提供 update/delete/revert API 或按钮。
+2. **新版在前 + 分页**：`limit+1` 探测 `has_more`；不在 UI 线程做全量扫描。
+3. **人类可读**：实体/动作/字段中文标签；值统一格式化（None/布尔/日期/时区/UUID/
+   集合摘要/长文本）；不向用户暴露原始 JSON 或内部字段名。
+4. **未知快照降级**：`snapshot_error` 标记 + 明确提示；禁止 diff/revert 该行；
+   绝不猜测或伪造内容。
+5. **旧数据边界**：最早记录不是创建动作时提示 Phase 14 之前历史不可恢复；完全没有历史
+   时说明不会补录；不用 created_at/updated_at 生成版本。
+6. **关系历史**：RELATIONSHIP 行与 parent=RELATIONSHIP 的 RELATIONSHIP_HISTORY 行分区分页
+   展示；操作组按钮统一展示同一次操作的全部变更。
+7. **已归档实体**：历史查询不依赖实体当前可写/可见性，归档后仍可查看。
+
+### 4. 数据库变化
+
+**无**：未新增 migration、未改 schema（仍 `0009_change_log`）。本阶段只读。
+
+### 5. 测试运行命令与结果
+
+```powershell
+& .\.venv\Scripts\python.exe -s -m pytest -q -ra
+```
+
+- **1733 collected / 1728 passed / 5 environment-skipped / 0 failed（退出码 0，8:59）**
+- 增量核对：1712（Phase 14.2 完成后）+ 21（Phase 14.3 新增：history service 11 +
+  UI 10）= 1733；既有测试无删除/弱化，5 项 Windows symlink skip 保持原义。
+
+新增测试：
+
+- `tests/services/test_change_history.py`（11）：新版在前分页、字段标签/值格式、任意/相邻
+  版本 diff、长文本全文、操作组、关系 parent 历史、归档实体可读、旧数据提示与不伪造、
+  未知 payload_version 降级、Workspace 隔离、参数校验与只读 API。
+- `tests/ui/test_revision_history_ui.py`（10）：版本列表与字段差异渲染（无原始 JSON/无
+  恢复按钮）、操作组对话框、关系状态历史分区、旧数据/无历史提示、未知快照降级、长文本
+  只读全文、归档人物历史、面板入口按钮、People 页面按钮打开对话框、Event 详情按钮。
+
+### 6. 已知问题和风险
+
+1. 差异以完整快照对比展示，未做逐字段折叠/统计；长文本用全文对话框处理。
+2. 关系状态历史分区独立分页（不把两股数据混排为单一分页流）。
+3. 未知快照只能显示审计元数据，不能 diff/revert（设计选择，不猜测）。
+4. 历史 UI 只读；恢复字段能力属 14.4，未提前实现。
+5. 入口按钮未覆盖 Workspace 历史（设计优先级为 Person/Relationship/Event/Evidence/
+   Memory）；Workspace 历史仍经后续或 SQL 查看。
+
+### 7. 下一阶段（14.4）前置条件
+
+- ✅ 历史查询/差异/操作组/旧数据提示/未知快照降级均可用并有测试。
+- ✅ UI 只读入口与操作组展示已就绪。
+- ⏳ 14.4 需要：恢复白名单、预览+确认、经原 Service 更新、REVERT 审计、完整性检查、
+  禁止恢复项测试与 UI 恢复入口。
+- 14.4 禁止：改写旧 ChangeLog、恢复不可变字段/关联、绕过既有 Service。
+
+### 8. Git 状态
+
+- 分支：`phase-14-revision-changelog`
+- 本阶段提交：`36b7cbe`（Service + UI + 测试）；文档提交紧随本记录
+- 是否推送远端：**否**
+
+---
+
 ## Phase 14.4 — Controlled Revert & Integrity
 
 （待实施）
@@ -334,3 +419,4 @@ EvidenceMedia（聚合快照）／Workspace／Memory 的真实业务 Service。�
 | 14.0（设计，无代码改动） | 1660 | 1655 | 0 | 5 | 0 |
 | 14.1（ChangeLog 持久化基础） | 1686 | 1681 | 0 | 5 | 0 |
 | 14.2（业务事务接入） | 1712 | 1707 | 0 | 5 | 0 |
+| 14.3（只读历史与差异 UI） | 1733 | 1728 | 0 | 5 | 0 |

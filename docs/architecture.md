@@ -80,9 +80,15 @@ Phase 14 采用**单表 append-only ChangeLog + 逻辑 Revision**：不建独立
 - **归属**：只有 `workspace_id` 是真实外键；多态实体引用由 Writer 校验与完整性审计兜底（SQLite 无法用一个外键指向多张表），如实保留该限制。
 - **不可变性**：Repository 只有 append/read；ORM 守卫拒绝 update/delete；管理员 raw SQL 仍可绕过，不宣称触发器级保护。
 - **快照**：白名单字段（`app/services/change_serialization.py`），排除系统时间、Evidence 原始内容、媒体二进制与内部路径；`payload_version` 管理格式演进。
-- **14.2 状态**：业务写操作已接入（`create_application_services()` 注入统一 Writer，与业务写入同事务；无变化不记；失败整体回滚）；**没有历史 UI（14.3）、没有恢复（14.4）**。当前应用会为受审计写操作产生 ChangeLog 行，但只能通过后续历史 UI 或 SQL 查看。
+- **14.3 状态**：只读历史查询与差异 UI 已完成（Person/Event/Evidence/Relationship/Memory 入口；操作组、分页、旧数据提示、未知快照降级）；**受控恢复（14.4）尚未实现**，UI 没有任何撤销/恢复字段按钮。
 - **捕获方式**：Service 层显式 `ChangeLogWriter`（不是 ORM Hook），由最外层业务方法创建 `ChangeOperationContext` 并透传嵌套调用；Alias、PersonMedia、EventParticipant、EvidenceMedia 的子集合变化记录在父实体快照中，RelationshipHistory 独立成实体并以 parent 关联 Relationship。
 - **历史边界**：Phase 14 之前创建的数据没有历史记录，不根据 `created_at/updated_at` 伪造；备份天然包含该表，默认导出不含。
+
+## UI 层（Phase 14.3 — Revision History & Diff Viewer）
+
+- **只读历史对话框** [revision_history.py](<../app/ui/revision_history.py>)：实体版本列表（新版在前、分页加载）、字段级"旧 → 新"差异、操作组（同一次用户操作的全部变更）、长文本全文查看、未知/旧版本快照降级提示、旧数据说明。
+- **入口**：People 人物操作区"历史"、Event 详情对话框、Evidence 面板、Relationship 面板、Memory 面板；关系额外展示"状态历史（追加记录）"分区。
+- **边界**：不显示原始 JSON/内部字段名；不提供恢复或撤销（14.4）；历史查询经 Service，UI 不接触 ORM；已归档实体仍可查看历史。
 
 ## 数据管理（Phase 10）
 
@@ -147,7 +153,7 @@ Phase 12 把既有能力组织成人物调查工作台（Person Investigation Co
 
 ## 未实现与后续决策
 
-- Sync／MemoryRevision；这些表与功能不存在。ChangeLog 已持久化并接入业务写操作（Phase 14.2）；Revision 历史 UI（14.3）与受控恢复（14.4）尚未实现。
+- Sync／MemoryRevision；这些表与功能不存在。ChangeLog 已持久化、接入业务写操作（Phase 14.2）并提供只读历史/差异 UI（Phase 14.3）；受控字段恢复（14.4）尚未实现。
 - Vision／OCR、RAG／向量库、embedding、记忆相似度搜索、自动记忆整合。
 - 聊天导入、自动事件提取、自动摘要、自动关系判断、自动 Memory。
 - 由分析结果修改事实的流程（Analysis → 用户复核 → 显式 Service 操作）；本阶段不实现。

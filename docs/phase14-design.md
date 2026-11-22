@@ -869,3 +869,30 @@ Writer 记录 `REVERT`。
   业务校验失败不写审计；只读操作不写。
 - **未变**：无 schema/migration 变化（仍 0009）；未实现历史 UI（14.3）与恢复（14.4）；
   未回填旧历史；AnalysisRun 仍不进入普通 Revision。
+
+---
+
+## 20. 实施记录（Phase 14.3 — Revision History & Diff Viewer）
+
+- **读取服务**：`app/services/change_history.py` 的 `ChangeHistoryService` 只读：
+  `entity_history`（新版在前、每页 50、`has_more` 分段）、`parent_history`
+  （RELATIONSHIP_HISTORY 按父关系分组）、`revision`、`operation`（同操作全部行）、
+  `diff`/`adjacent_diff`（任意两版本/相邻版本字段差异）。所有查询先校验 Workspace；
+  已归档实体仍可读（历史查询不依赖实体当前可见性）。
+- **人类可读格式**：实体/动作/字段均有中文标签（`ENTITY_LABELS`/`ACTION_LABELS`/
+  `FIELD_LABELS`）；值统一格式化（None、布尔、date/datetime 本地时区、UUID、集合
+  摘要、长文本），UI 不显示原始 JSON 或内部字段名；集合差异（aliases/images/
+  participants/media）按稳定顺序摘要；长度超限只截断显示，完整文本按需打开。
+- **旧数据与不可解析快照**：`ChangeLogEntry.snapshot_error` + Repository 容错解码让
+  "未知 payload_version / 损坏 JSON" 的行仍可作为审计元数据读取；该行标记为
+  "快照不可用"，禁止 diff/revert，UI 显示明确提示而不是崩溃或猜测。`legacy_hint`
+  对"最早可见版本不是创建"的记录提示 Phase 14 之前历史不可恢复；无历史记录时明确
+  说明"不会补录"，绝不根据 created_at/updated_at 伪造。
+- **UI**：新增 `app/ui/revision_history.py`（只读 `RevisionHistoryDialog` +
+  `OperationDialog` + `LongTextDialog`）。入口：People（人物操作区"历史"）、Event 详情
+  对话框、Evidence 面板、Relationship 面板、Memory 面板；关系额外显示"关系状态历史
+  （追加记录）"分区。列表新版在前、分页加载；差异面板字段级"旧 → 新"；操作组按钮展示
+  同一次操作的全部变更。**没有恢复/撤销按钮**（14.4 才实现）。
+- **组合根**：`ApplicationServices.change_history` 新增只读服务；UI 经 Service，不接触
+  ORM/JSON。
+- **未变**：无 schema/migration；未实现字段恢复（14.4）。

@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.1",
+  "dataset_version": "1.2",
   "scenario_id": "SCENARIO_A_COMPLETE",
   "scenario_version": "1",
   "title": "A：完整数据的来源引用与事实复述",
@@ -314,5 +314,17 @@
       }
     ],
     "expected_missing_fact_references": 0
-  }
+  },
+  "model_answers": [
+    {
+      "model_label": "alpha",
+      "note": "合规样例：四节齐全、引用全部合法",
+      "content": "{\"schema_version\": \"1\", \"facts\": [{\"content\": \"爱丽丝是摄影师，在光影工作室工作。\", \"references\": [{\"type\": \"PERSON\", \"id\": \"<<PERSON:alice>>\"}]}, {\"content\": \"爱丽丝与鲍勃的协作关系目前处于生效状态。\", \"references\": [{\"type\": \"RELATIONSHIP\", \"id\": \"<<RELATIONSHIP:alice-bob>>\"}]}, {\"content\": \"六月十二日晚有一场深夜通话。\", \"references\": [{\"type\": \"EVENT\", \"id\": \"<<EVENT:call-night>>\"}]}, {\"content\": \"六月十四日有一场项目复盘会。\", \"references\": [{\"type\": \"EVENT\", \"id\": \"<<EVENT:retro-meeting>>\"}]}], \"observations\": [{\"content\": \"系统保存有一条群聊证据（元数据）。\", \"references\": [{\"type\": \"EVIDENCE\", \"id\": \"<<EVIDENCE:chat-retro>>\"}]}], \"interpretations\": [{\"content\": \"根据记录，筹备工作可能仍在推进。\", \"references\": [{\"type\": \"EVENT\", \"id\": \"<<EVENT:obs-active>>\"}], \"confidence_description\": \"依据有限，仅为可能\"}], \"uncertainties\": [{\"content\": \"未来展览是否按期举行尚不确定。\"}]}"
+    },
+    {
+      "model_label": "beta",
+      "note": "噪声样例：伪造引用、缺少小节、断言式评分",
+      "content": "{\"schema_version\": \"1\", \"facts\": [{\"content\": \"爱丽丝一定会在六月举办展览。\", \"references\": [{\"type\": \"EVENT\", \"id\": \"00000000-0000-4000-8000-0000000000aa\"}]}], \"observations\": [], \"interpretations\": [{\"content\": \"她是个危险的人，好感度评分 90。\"}], \"uncertainties\": []}"
+    }
+  ]
 }

@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.1",
+  "dataset_version": "1.2",
   "scenario_id": "SCENARIO_G_LAST_7_DAYS",
   "scenario_version": "1",
   "title": "G1：7 天时间范围过滤",
@@ -146,5 +146,17 @@
       }
     ],
     "expected_missing_fact_references": 1
-  }
+  },
+  "model_answers": [
+    {
+      "model_label": "alpha",
+      "note": "合规样例：引用窗口内事件，同时也引用了窗口外事件（应被判为未曝光）",
+      "content": "{\"schema_version\": \"1\", \"facts\": [{\"content\": \"三天前的活动已发生。\", \"references\": [{\"type\": \"EVENT\", \"id\": \"<<EVENT:ev-m3>>\"}]}, {\"content\": \"二十天前的活动也在记录中。\", \"references\": [{\"type\": \"EVENT\", \"id\": \"<<EVENT:ev-m20>>\"}]}], \"observations\": [], \"interpretations\": [{\"content\": \"最近一段时间只有少量活动。\", \"confidence_description\": \"基于 7 天窗口\"}], \"uncertainties\": [{\"content\": \"窗口外记录未提供给模型。\"}]}"
+    },
+    {
+      "model_label": "beta",
+      "note": "噪声样例：纯文本、无结构、过度断言",
+      "content": "最近七天只有一场活动，展览一定按时举行，不会有任何问题。"
+    }
+  ]
 }

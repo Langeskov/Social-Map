@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.1",
+  "dataset_version": "1.2",
   "scenario_id": "SCENARIO_G_CUSTOM",
   "scenario_version": "1",
   "title": "G5：CUSTOM 自定义时间范围",

@@ -88,6 +88,9 @@ class AnalysisResult:
     uncertainties: tuple[AnalysisEntry, ...] = ()
     unparsed_content: str = ""
     warnings: tuple[str, ...] = ()
+    #: Which of the four contract sections were actually present in the answer
+    #: (JSON keys, or non-empty legacy headings). Empty for unparseable answers.
+    sections_present: tuple[str, ...] = ()
 
     def __post_init__(self):
         if self.parse_status not in PARSE_STATUSES:

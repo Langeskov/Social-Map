@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.1",
+  "dataset_version": "1.2",
   "scenario_id": "SCENARIO_I_MEMORY_ON",
   "scenario_version": "1",
   "title": "I2：Memory 开启后只包含当前有效的记忆",

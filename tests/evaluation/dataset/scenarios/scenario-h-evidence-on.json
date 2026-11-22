@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.1",
+  "dataset_version": "1.2",
   "scenario_id": "SCENARIO_H_EVIDENCE_ON",
   "scenario_version": "1",
   "title": "H2：Evidence 开启——原文、注释与附件元数据分离",

@@ -50,6 +50,7 @@ def parse_analysis_result(raw_text: str) -> AnalysisResult:
             raw_text=raw, schema_version="", parse_status=LEGACY_MARKDOWN,
             **{key: entries[key] for key in SECTION_KEYS},
             unparsed_content=sections.get("other", ""),
+            sections_present=tuple(found),
             warnings=("旧版 Markdown 四段格式：已按小节展示，但没有结构化引用。",))
     return AnalysisResult(raw_text=raw, schema_version="", parse_status=UNSTRUCTURED_TEXT,
                           unparsed_content=raw,
@@ -130,7 +131,10 @@ def _parse_json_payload(raw, payload, outside, fragment) -> AnalysisResult:
     return AnalysisResult(raw_text=raw, schema_version=schema_version,
                           parse_status=(PARSED_JSON_FRAGMENT if fragment else PARSED_JSON),
                           **{key: entries[key] for key in SECTION_KEYS},
-                          unparsed_content=unparsed, warnings=tuple(warnings))
+                          unparsed_content=unparsed, warnings=tuple(warnings),
+                          sections_present=tuple(
+                              key for key in SECTION_KEYS
+                              if isinstance(payload.get(key), list)))
 
 
 def _parse_entry(section, index, item, warnings, unparsed_parts):

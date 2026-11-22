@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.1",
+  "dataset_version": "1.2",
   "scenario_id": "SCENARIO_J_OVER_LIMIT",
   "scenario_version": "1",
   "title": "J2：超长上下文——超过预算上限",

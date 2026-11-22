@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.1",
+  "dataset_version": "1.2",
   "scenario_id": "SCENARIO_E_EPISTEMIC",
   "scenario_version": "1",
   "title": "E：FACT / OBSERVATION / INFERENCE 边界",

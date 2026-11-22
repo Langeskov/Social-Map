@@ -10,21 +10,30 @@ Public API:
 Evaluation never writes facts, never saves Memories and never calls a model.
 """
 from app.evaluation.dataset import load_dataset, scenario_digest
+from app.evaluation.model_evaluation import (ModelEvaluationRunResult,
+                                             evaluate_answer,
+                                             run_model_evaluation,
+                                             run_online_model_evaluation)
 from app.evaluation.models import (DATASET_VERSION, FAIL, METRIC_DEFINITIONS,
                                    NOT_APPLICABLE, PASS, SCHEMA_VERSION,
                                    DatasetError, DatasetIssue, EvaluationDataset,
                                    EvaluationRunResult, EvaluationScenario,
                                    ExpectedReferenceOutcome, MetricResult,
-                                   SampleOutput, ScenarioEvaluationResult)
-from app.evaluation.report import render_markdown, write_report
+                                   ModelAnswerSpec, SampleOutput,
+                                   ScenarioEvaluationResult)
+from app.evaluation.report import (render_markdown, render_model_markdown,
+                                   write_model_report, write_report)
 from app.evaluation.runner import mask_volatile_text, run_dataset, run_scenario
 
 __all__ = [
     "DATASET_VERSION", "SCHEMA_VERSION", "METRIC_DEFINITIONS",
     "PASS", "FAIL", "NOT_APPLICABLE",
     "DatasetError", "DatasetIssue", "EvaluationDataset", "EvaluationRunResult",
-    "EvaluationScenario", "ExpectedReferenceOutcome", "MetricResult", "SampleOutput",
-    "ScenarioEvaluationResult",
+    "EvaluationScenario", "ExpectedReferenceOutcome", "MetricResult",
+    "ModelAnswerSpec", "SampleOutput", "ScenarioEvaluationResult",
+    "ModelEvaluationRunResult", "evaluate_answer",
     "load_dataset", "scenario_digest", "run_dataset", "run_scenario",
-    "render_markdown", "write_report", "mask_volatile_text",
+    "run_model_evaluation", "run_online_model_evaluation",
+    "render_markdown", "render_model_markdown",
+    "write_report", "write_model_report", "mask_volatile_text",
 ]

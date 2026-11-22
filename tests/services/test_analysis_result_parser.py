@@ -196,3 +196,17 @@ def test_display_text_marks_references_as_unvalidated():
     assert "双方可能仍在维持协作。" in text
     assert "引用（未校验）" in text
     assert "不确定说明：依据不足，仅为可能。" in text
+
+
+def test_sections_present_records_the_json_contract_keys():
+    result = parse_analysis_result(json.dumps({"schema_version": "1", "facts": [],
+                                               "observations": [],
+                                               "interpretations": [],
+                                               "uncertainties": []}))
+    assert result.sections_present == ("facts", "observations", "interpretations",
+                                       "uncertainties")
+
+
+def test_sections_present_is_empty_for_unparseable_text():
+    result = parse_analysis_result("只是一段没有结构的文字，没有 JSON，也没有小节。")
+    assert result.sections_present == ()

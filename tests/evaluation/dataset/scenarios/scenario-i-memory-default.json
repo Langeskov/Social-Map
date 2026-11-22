@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.1",
+  "dataset_version": "1.2",
   "scenario_id": "SCENARIO_I_MEMORY_DEFAULT",
   "scenario_version": "1",
   "title": "I1：Memory 默认关闭",

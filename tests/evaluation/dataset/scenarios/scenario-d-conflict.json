@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "dataset_version": "1.1",
+  "dataset_version": "1.2",
   "scenario_id": "SCENARIO_D_CONFLICT",
   "scenario_version": "1",
   "title": "D：矛盾记录应被识别而不是被裁决",
@@ -171,5 +171,17 @@
       }
     ],
     "expected_missing_fact_references": 0
-  }
+  },
+  "model_answers": [
+    {
+      "model_label": "alpha",
+      "note": "合规样例：保留矛盾并引用两条证据",
+      "content": "{\"schema_version\": \"1\", \"facts\": [{\"content\": \"群聊记录称例会改到周四下午。\", \"references\": [{\"type\": \"EVIDENCE\", \"id\": \"<<EVIDENCE:chat-d>>\"}]}, {\"content\": \"邮件摘要称例会仍在周三下午。\", \"references\": [{\"type\": \"EVIDENCE\", \"id\": \"<<EVIDENCE:mail-d>>\"}]}], \"observations\": [], \"interpretations\": [{\"content\": \"两条证据对同一事项的记载互相矛盾。\", \"confidence_description\": \"无法确定实际时间\"}], \"uncertainties\": [{\"content\": \"例会的实际举行时间无法由现有记录确定。\"}]}"
+    },
+    {
+      "model_label": "beta",
+      "note": "噪声样例：单方裁决且无引用",
+      "content": "{\"schema_version\": \"1\", \"facts\": [{\"content\": \"例会确定改到了周四下午。\"}], \"observations\": [], \"interpretations\": [{\"content\": \"邮件记录不可信。\"}], \"uncertainties\": []}"
+    }
+  ]
 }

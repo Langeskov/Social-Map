@@ -20,12 +20,14 @@ REQUIRED_TOP_LEVEL_FIELDS = (
     "expected_uncertainties", "evaluation_dimensions",
 )
 
-#: The ten metrics required by the Phase 13.0 metric table.
+#: The ten metrics required by the Phase 13.0 metric table plus the four
+#: model-evaluation dimensions added in Phase 13.4.
 TABLE_METRICS = (
     "PARSE_VALIDITY", "REQUIRED_SECTIONS", "CITATION_VALIDITY",
     "CROSS_WORKSPACE_LEAKAGE", "FACT_COVERAGE", "UNSUPPORTED_CLAIMS",
     "UNCERTAINTY_HANDLING", "EPISTEMIC_SEPARATION", "COMPLETENESS", "ROBUSTNESS",
 )
+MODEL_METRICS = ("GROUNDING", "LATENCY", "TOKEN_USAGE", "FAILURE_RATE")
 
 
 @pytest.fixture(scope="module")
@@ -60,11 +62,11 @@ def test_expected_fact_ids_are_unique_within_each_scenario(dataset):
 
 
 def test_metric_registry_contains_the_required_table():
-    for metric_id in TABLE_METRICS:
+    for metric_id in TABLE_METRICS + MODEL_METRICS:
         definition = METRIC_DEFINITIONS.get(metric_id)
         assert definition is not None, metric_id
         assert definition.description and definition.method and definition.scope
-    assert len(METRIC_DEFINITIONS) == 18
+    assert len(METRIC_DEFINITIONS) == 22
 
 
 def test_metric_registry_keeps_modes_explicit():

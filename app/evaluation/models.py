@@ -20,7 +20,7 @@ from uuid import UUID
 #: Version of the dataset/scenario JSON schema this loader understands.
 SCHEMA_VERSION = "1"
 #: Version of the bundled synthetic dataset content.
-DATASET_VERSION = "1.1"
+DATASET_VERSION = "1.2"
 
 # ------------------------------------------------------------------ source kinds
 #: Fact types an AnalysisSource may cite (kept identical to the analysis layer).
@@ -197,6 +197,21 @@ class SampleOutput:
 
 
 @dataclass(frozen=True)
+class ModelAnswerSpec:
+    """A fixed synthetic model answer for offline model evaluation (Phase 13.4).
+
+    ``content`` may embed ``<<TYPE:key>>`` placeholders like sample outputs; the
+    offline evaluator substitutes real UUIDs before parsing. Fixed answers let two
+    model labels be compared on the *same* dataset/context/prompt without any
+    network call.
+    """
+
+    model_label: str
+    content: str
+    note: str = ""
+
+
+@dataclass(frozen=True)
 class ExpectedContext:
     """Deterministic expectations about the *input* the model will see.
 
@@ -229,6 +244,7 @@ class EvaluationScenario:
     evaluation_dimensions: tuple[str, ...]
     expected_context: ExpectedContext
     sample_output: SampleOutput | None = None
+    model_answers: tuple[ModelAnswerSpec, ...] = ()
     notes: str = ""
     source_path: str = ""
 
@@ -608,6 +624,31 @@ METRIC_DEFINITIONS: dict[str, MetricDefinition] = {
             " expected_references 比对；引用合法性不等于语义有据。",
             "样例模型输出 vs 来源集合", True, False, True,
             ""),
+        MetricDefinition(
+            "GROUNDING", "Grounding", "Deterministic proxy / Human",
+            "模型输出中的事实条目是否指向本次上下文的合法来源（结构性代理）。",
+            "13.4 起：FACT 小节每条必须带至少一个合法引用；语义是否真的被支持仍由人工复核，"
+            "自动结果只是代理，不能证明结论有据。",
+            "模型输出 vs 来源集合 + 人工", False, True, False,
+            "回答没有 FACT 条目可检查（或本次运行没有模型输出）。"),
+        MetricDefinition(
+            "LATENCY", "Latency", "Deterministic (observed)",
+            "模型调用耗时（毫秒），按模型聚合平均/中位数；无通过阈值，仅如实报告。",
+            "13.4：记录每次调用 duration_ms 并聚合；失败样本不参与平均但计入失败率。",
+            "模型评估运行", False, False, False,
+            "仅在模型评估运行中计算；数据集离线运行不产出该指标。"),
+        MetricDefinition(
+            "TOKEN_USAGE", "Token Usage", "Deterministic (observed)",
+            "Provider 返回的 usage（prompt/completion/total）与可用性；不补 0、不推算。",
+            "13.4：复用 Phase 13.3 usage_summary；无 usage 时聚合显示不可用而非 0。",
+            "模型评估运行", False, False, False,
+            "仅在模型评估运行中计算；数据集离线运行不产出该指标。"),
+        MetricDefinition(
+            "FAILURE_RATE", "Failure Rate", "Deterministic",
+            "请求失败（错误/超时/异常结束）数量 / 总请求数；失败样本必须保留在报告中。",
+            "13.4：按模型统计失败请求；错误类型、是否重试、是否超时、是否提前结束分别记录。",
+            "模型评估运行", False, False, False,
+            "仅在模型评估运行中计算；数据集离线运行不产出该指标。"),
     )
 }
 

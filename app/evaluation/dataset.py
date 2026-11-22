@@ -26,8 +26,9 @@ from app.evaluation.models import (ANALYSIS_TYPES, BULK_LIMIT, DATASET_VERSION,
                                    ExpectedReferenceOutcome, ExpectedUncertainty,
                                    ForbiddenClaim, FixtureSpec, HistorySpec,
                                    HumanReviewItem, MediaSpec, MemorySpec,
-                                   ParticipantSpec, PersonSpec, RelationshipSpec,
-                                   RequestSpec, SampleOutput, SourceRef)
+                                   ModelAnswerSpec, ParticipantSpec, PersonSpec,
+                                   RelationshipSpec, RequestSpec, SampleOutput,
+                                   SourceRef)
 
 MANIFEST_NAME = "dataset.json"
 #: ``<<TYPE:key>>`` placeholders in sample outputs, resolved at run time.
@@ -547,7 +548,7 @@ def _parse_scenario(raw, path, issues):
                        "request", "expected_facts", "required_sources",
                        "forbidden_claims", "expected_uncertainties", "human_review",
                        "evaluation_dimensions", "expected_context", "sample_output",
-                       "notes"}, path, issues)
+                       "model_answers", "notes"}, path, issues)
     _schema_version(data, path, issues)
 
     def ref_list(key, cls):
@@ -606,6 +607,22 @@ def _parse_scenario(raw, path, issues):
     if request is None:
         request = RequestSpec(target_type="PERSON", target_key="", analysis_type="PERSON_PROFILE",
                               as_of=datetime.fromtimestamp(0, tz=None).astimezone())
+    model_answers = []
+    labels = set()
+    for index, value in enumerate(_sequence(data, "model_answers", path, issues)):
+        item_path = f"{path}.model_answers[{index}]"
+        entry = _mapping(value, item_path, issues)
+        if entry is None:
+            continue
+        _check_keys(entry, {"model_label", "content", "note"}, item_path, issues)
+        label = _text(entry, "model_label", item_path, issues)
+        if label in labels:
+            _issue(issues, f"{item_path}.model_label", f"model_label 重复：{label!r}。")
+        labels.add(label)
+        model_answers.append(ModelAnswerSpec(
+            model_label=label,
+            content=_text(entry, "content", item_path, issues),
+            note=_text(entry, "note", item_path, issues, required=False)))
     return EvaluationScenario(
         scenario_id=_text(data, "scenario_id", path, issues),
         scenario_version=_text(data, "scenario_version", path, issues),
@@ -624,6 +641,7 @@ def _parse_scenario(raw, path, issues):
                                                  f"{path}.expected_context", issues),
         sample_output=_parse_sample_output(data.get("sample_output"),
                                            f"{path}.sample_output", issues),
+        model_answers=tuple(model_answers),
         notes=_text(data, "notes", path, issues, required=False),
         source_path=path)
 
@@ -771,13 +789,16 @@ def _validate_scenario(scenario, fixture, issues):
         if dimension not in METRIC_DEFINITIONS:
             _issue(issues, f"{path}.evaluation_dimensions",
                    f"未知指标 {dimension!r}；必须来自指标注册表。")
-    sample = scenario.sample_output
-    if sample is not None:
-        for match in PLACEHOLDER_PATTERN.finditer(sample.content):
+    def check_placeholders(text, owner_path):
+        for match in PLACEHOLDER_PATTERN.finditer(text or ""):
             ref_type, key = match.group(1), match.group(2)
             if not known(ref_type, key):
-                _issue(issues, f"{path}.sample_output.content",
+                _issue(issues, owner_path,
                        f"占位符 <<{ref_type}:{key}>> 引用的来源不在 fixture 中。")
+
+    sample = scenario.sample_output
+    if sample is not None:
+        check_placeholders(sample.content, f"{path}.sample_output.content")
         for expected in sample.expected_references:
             if expected.source is not None:
                 if not known(expected.source.type, expected.source.key):
@@ -792,6 +813,8 @@ def _validate_scenario(scenario, fixture, issues):
                 if str(expected.literal_id) not in sample.content:
                     _issue(issues, f"{path}.sample_output.expected_references",
                            f"样例内容没有出现预期引用 {expected.literal_id}。")
+    for index, answer in enumerate(scenario.model_answers):
+        check_placeholders(answer.content, f"{path}.model_answers[{index}].content")
 
 
 # ------------------------------------------------------------------- public API

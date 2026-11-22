@@ -106,9 +106,9 @@ Migration `0009_change_log` 只计划在 14.1 实施（用户审核设计后）�
 
 - 当前分支：`phase-14-revision-changelog`
 - 开发前 HEAD：`582e996`
-- 本阶段修改文件：仅新增 `docs/phase14-design.md`、`docs/phase14-verification.md`
-  （以及 README 文档索引链接，如有）
-- 是否提交：**（见交付报告 / 待填）**
+- 本阶段修改文件：新增 `docs/phase14-design.md`、`docs/phase14-verification.md`；
+  更新 `README.md`（状态、Phase 14 链接、边界说明）
+- 是否提交：**是**（`9847eb8` 设计提交；本记录补齐提交紧随其后）
 - 是否推送：**否**（未推送远端）
 
 ---

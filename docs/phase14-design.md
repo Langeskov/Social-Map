@@ -1,9 +1,10 @@
 # Phase 14 设计文档 — Revision & ChangeLog：实体修订历史与操作审计
 
-> 状态：**Phase 14.0 设计稿（待用户审核）**。
-> 本文档只描述设计与边界；14.0 不修改业务代码、不新增 Migration、不改变数据库 Schema。
-> 依据：当前本地代码实际实现（HEAD `582e996`，Alembic head `0008_memory`）与 Phase 14
-> 主控提示词。若代码与本文冲突，以代码为准并在 14.x 更新本文。
+> 状态：**Phase 14 设计契约（已批准；14.1–14.4 已全部实现并通过验收）**。
+> 本文档是最终设计契约与边界；各子阶段的实际实施记录见
+> [Phase 14 验收记录](<phase14-verification.md>)。
+> 历史注记：14.0 设计编写时的 HEAD 为 `582e996`、Alembic head 为 `0008_memory`；
+> 14.1 引入迁移 `0009_change_log` 后 head 未再变化（截至 Phase 14.4 完成）。
 
 ---
 
@@ -299,7 +300,7 @@ ChangeLog 只记录 **Recorded Time**；不得把 `occurred_on`/`effective_at`/`
 | RELATIONSHIP_HISTORY | APPEND_HISTORY/ATTACH_EVENT/DETACH_EVENT | 无 | 无 |
 | EVENT | CREATE/UPDATE/ARCHIVE/RESTORE | 8 个普通字段 | 现有 `restore_event()` |
 | EVIDENCE | CREATE/UPDATE/ARCHIVE/RESTORE | title, annotation | 现有 `restore_evidence()` |
-| MEDIA | IMPORT/ARCHIVE | 无 | 无 |
+| MEDIA | IMPORT/ARCHIVE/RESTORE | 无 | 重新导入已归档媒体时 RESTORE（同一 Media ID） |
 | MEMORY | CREATE/UPDATE/ARCHIVE/RESTORE | content,kind,person_id,valid_from,valid_until | 现有 `restore()` |
 
 ---
@@ -355,7 +356,7 @@ Declarative 的保留属性名，因此 ORM 属性为 `metadata_json`、数据�
 `CREATE, UPDATE, ARCHIVE, RESTORE, IMPORT, APPEND_HISTORY, ATTACH_EVENT, DETACH_EVENT,
 REVERT`（14.4 引入 REVERT）。
 
-各实体允许的 action 由 Writer 校验（例：MEDIA 只允许 IMPORT/ARCHIVE；EVIDENCE 不允许
+各实体允许的 action 由 Writer 校验（例：MEDIA 允许 IMPORT/ARCHIVE/RESTORE；EVIDENCE 不允许
 APPEND_HISTORY）。
 
 ### 5.3 revision_no 规则
@@ -863,8 +864,9 @@ Writer 记录 `REVERT`。
   `parent=(RELATIONSHIP, id)`；APPEND_HISTORY 以 `before=null` 记录。
 - **两阶段 Media**：人物带头像创建时，PersonService 生成 operation context，经
   `MediaService.import_file(..., operation=ctx)` 传入；实际写库的 `_persist` 事务内记录
-  PERSON CREATE + MEDIA IMPORT（同一 operation），不产生重复 PERSON 行。Media 仅在新导入
-  或恢复已删除媒体时记录 IMPORT；人物/证据的附件变化进入父实体快照。
+  PERSON CREATE + MEDIA IMPORT（同一 operation），不产生重复 PERSON 行。Media 新导入记录
+  IMPORT；重新导入已归档媒体记录 RESTORE（同一 Media ID，不产生第二个 IMPORT）；已存在且未
+  归档的重复导入不产生媒体审计行；人物/证据的附件变化进入父实体快照。
 - **失败原子性**：快照生成或 ChangeLog 写入失败直接抛出 → 业务事务整体回滚；
   业务校验失败不写审计；只读操作不写。
 - **未变**：无 schema/migration 变化（仍 0009）；未实现历史 UI（14.3）与恢复（14.4）；
@@ -926,3 +928,23 @@ Writer 记录 `REVERT`。
   不改变 fact_tables 语义；备份/导出行为不变。
 - **未变**：无 schema/migration（仍 0009）；不重写历史、不自动修复任何数据；不改变备份/导出
   内容。
+
+
+---
+
+## 22. 发布后静态审计修复（2026-11-22）
+
+在 Phase 14 完成后的静态审计中修复了以下问题，均未改变数据库 Schema：
+
+1. **本地文件误跟踪**：`AGENTS.md` 与 `项目.txt` 从 Git 索引移除（保留本地文件与 `.gitignore`
+   规则）。对这两个文件的当前内容及全部历史版本做了模式级密钥扫描，未发现 API Key/Token/
+   密码/本机路径；此项清理不重写 Git 历史，历史提交中仍保留这两个文件，若需彻底移除必须
+   单独评估并确认历史改写。
+2. **历史分页**：普通实体与 Relationship 父历史均改为 SQL 层真正的“最新优先”分页；
+   UI 初次加载后立即推进 offset，连续加载不再重复第一页（新增 >50 条分页测试）。
+3. **Media 重新导入语义**：首次导入 IMPORT、重新导入已归档媒体 RESTORE（同一 Media ID）、
+   已存在且未归档的重复导入不产生媒体审计行；集中审计矩阵与测试同步更新。
+4. **完整性审计快照语义**：除 JSON 可解析外，增加白名单字段完整性、Domain 动作/前后快照
+   约束、`changed_fields` 与快照差异一致性检查（`CHANGE_LOG_SNAPSHOT_INVALID`、
+   `CHANGE_LOG_CHANGED_FIELDS_INVALID`）。
+5. **文档收尾**：设计文档标注最终状态与历史时点；删除验收文档中残留的“待实施”重复小节。

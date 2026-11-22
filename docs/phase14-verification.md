@@ -215,12 +215,6 @@ append-only ORM 模型与守卫、Repository 接口与 SQL adapter、白名单�
 
 ## Phase 14.2 — Transactional Change Capture
 
-（待实施）
-
----
-
-## Phase 14.2 — Transactional Change Capture
-
 ### 1. 本阶段结论
 
 **完成**：在 14.0 审计矩阵与 14.1 持久化基础上，实现统一捕获入口
@@ -312,12 +306,6 @@ EvidenceMedia（聚合快照）／Workspace／Memory 的真实业务 Service。�
 - 分支：`phase-14-revision-changelog`
 - 本阶段提交：`7030e9f`（代码 + 测试）；文档提交紧随本记录
 - 是否推送远端：**否**
-
----
-
-## Phase 14.3 — Revision History & Diff Viewer
-
-（待实施）
 
 ---
 
@@ -498,6 +486,40 @@ Revision；旧历史不改不删），并为 ChangeLog 增加只读完整性审�
 - 本阶段提交：`a1f471b`（Service + UI + 完整性检查 + 测试）；文档提交紧随本记录
 - 是否推送远端：**否**
 
+
+---
+
+## Phase 14 发布后静态审计修复（2026-11-22）
+
+### 修复内容
+
+1. **P1 本地文件误跟踪**：`AGENTS.md`、`项目.txt` 执行 `git rm --cached`，保留本地文件；
+   `.gitignore` 原已包含两者。对当前内容与全部 Git 历史版本做了密钥/Token/密码/本机路径
+   模式扫描，**未发现**匹配；未改写历史，因此历史提交仍含这两个文件，彻底清理需单独确认。
+2. **P1 历史分页缺陷**：UI 初次加载后立即更新 `_offset`/`_related_offset`；加载更多从已加载
+   数量开始；`list_by_parent` 改为 SQL 层 `newest_first` 倒序分页，Service 不再“先正序分页
+   再反转”。新增实体 56 版本、关系父历史 56 条的连续两页测试（无重复、无遗漏、倒序正确）。
+3. **P1 Media 重新导入语义**：`IMPORT`（首次）与 `RESTORE`（已归档重新导入，同一 Media ID，
+   记录 before/after）区分；已存在且未归档的重复导入不产生媒体审计行。Domain 的 MEDIA
+   允许动作增加 `RESTORE`；新增完整测试。
+4. **P1 完整性审计快照语义**：新增白名单字段集合完整性、Domain 动作/前后快照约束、
+   `changed_fields` 与实际差异一致性检查；新增 4 个直接插入 JSON 合法但语义错误行的测试
+   （白名单外字段、缺失字段、changed_fields 不一致、动作约束不满足）。
+5. **文档收尾**：设计文档顶部改为最终契约状态并标注历史时点；删除验收文档中残留的
+   “待实施”重复小节；审计矩阵补 MEDIA RESTORE。
+
+### 测试结果
+
+- **1764 collected / 1759 passed / 5 environment-skipped / 0 failed（退出码 0，9:18）**
+- 增量核对：1756（Phase 14.4 末）+ 8（media re-import 1、parent history 分页 1、
+  integrity 语义 4、UI 分页 2）= 1764；既有测试无删除/弱化，5 项 symlink skip 保持原义。
+
+### Git 状态
+
+- 分支：`main`（与远端 `origin/main` 保持同步）
+- 修复提交：`1c08087`（P2 代码+测试）；`f854c72`（P1 本地文件取消跟踪）；文档提交紧随本记录
+- 是否推送远端：**是（快进推送 `main`，不重写历史）**
+
 ---
 
 ## Phase 14 总结
@@ -522,3 +544,4 @@ Phase 14 完成后仍是单用户、本地优先、不联网、不同步、无�
 | 14.2（业务事务接入） | 1712 | 1707 | 0 | 5 | 0 |
 | 14.3（只读历史与差异 UI） | 1733 | 1728 | 0 | 5 | 0 |
 | 14.4（受控恢复与完整性） | 1756 | 1751 | 0 | 5 | 0 |
+| 14.4 审计修复（2026-11-22） | 1764 | 1759 | 0 | 5 | 0 |

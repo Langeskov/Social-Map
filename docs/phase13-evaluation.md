@@ -437,7 +437,8 @@ Scenario version、ContextSnapshot、Prompt Template 版本与哈希、输出契
 声称可比。
 
 失败请求必须保留：`status=FAILED`、`error_class`、`timed_out`、`attempts`（网关
-成功时记录真实尝试数；异常路径无法得知时如实记为未知，不猜）、以及失败样本列表。
+成功时记录真实尝试数；最终失败路径自 13.5 起同样记录真实次数；异常路径无法得知时如实
+记为未知，不猜）、以及失败样本列表。
 提前结束（`finish_reason`）与 usage 缺失同样如实记录：缺失 = `available=False`，
 绝不补 0。
 

@@ -174,7 +174,9 @@ scope 的请求部分仍不可改写；仓储层只允许**追加** telemetry，
   （`prompt_tokens` / `completion_tokens` / `total_tokens` + `available`）、
   `provider_request_id`（仅响应 `id` 字符串，截断保存）；
 - Execution：`status`、`duration_ms`、`retry_count`（网关实际尝试次数−1，失败运行
-  另记 `error_class`）。
+  另记 `error_class`）。**retry_count 只记录真实尝试数**：成功与最终失败路径都由网关
+  附加实际尝试次数（失败时通过异常携带）；上下文构建失败 = 0 次尝试；取消等无法确认
+  次数的路径记为 `null`（unavailable），绝不伪造 0（Phase 13.5 修正）。
 
 **哈希规范（仅用于识别内容变化，不是签名或防篡改证明）**：canonical JSON
 （`sort_keys=True`、`ensure_ascii=False`、紧凑分隔符）→ UTF-8 → SHA-256。`None` 与 `""`

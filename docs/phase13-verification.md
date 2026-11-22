@@ -729,6 +729,100 @@ Phase 13 的五个子阶段（13.0–13.4）至此完成。后续若继续扩展
 
 ---
 
+## Phase 13.5 — 遥测重试次数修正（小修复）
+
+**背景**：Phase 13.3 的 `LLMGateway.chat_with_attempts()` 只在**成功**时返回实际
+尝试次数；最终失败时直接抛出异常，不携带次数。`AnalysisService` 的失败路径调用
+`fail_telemetry()`，而后者固定写 `retry_count = 0`。于是「Attempt 1 → HTTP 500，
+Attempt 2 → HTTP 500，最终 FAILED」会被遥测记成 `retry_count = 0`，低估重试并污染
+Phase 13 的评估数据。
+
+**修复原则**：成功与最终失败都记录**真实尝试次数**；只有确实无法确认的路径（取消等）
+记为 unavailable（`null`），绝不伪造 0。
+
+### 完成内容
+
+1. **Gateway 携带尝试次数**（`app/services/llm/gateway.py`）：最终失败时把实际尝试
+   次数附加到抛出的 `LLMError`（`ATTEMPTS_ATTRIBUTE`）；新增
+   `attempts_from_error(exc) -> int | None`，只接受 `int >= 1`，其他值（缺失、0、
+   bool、字符串）一律视为未知。
+2. **遥测不再写死 0**（`app/services/analysis_telemetry.py`）：`_execution()` 改为
+   由 `attempts` 推导 `retry_count = attempts - 1`，`attempts=None` → `retry_count=null`；
+   `fail_telemetry()` 新增必填 `attempts` 参数，调用方必须显式说明能否确认次数。
+3. **Service 三条路径区分**（`app/services/analysis.py`）：
+   - Provider 最终失败：`attempts = attempts_from_error(exc)`（真实值）；
+   - 上下文构建失败：`attempts = 0`（可证明未发生 Provider 调用）；
+   - `cancel_run()` / 取消路径：`attempts = None`（无法确认，记 unavailable）。
+4. **在线模型评估**（`app/evaluation/model_evaluation.py`）：失败 outcome 也通过
+   `attempts_from_error()` 记录真实尝试次数（此前恒为 `None`）。
+5. **UI**（`app/ui/analysis_dialog.py`）：新运行 `retry_count = null` 显示
+   `unavailable（无法确认）`；旧运行（无 telemetry）仍显示 `未记录（旧记录）`。
+
+### 语义对照
+
+| 路径 | attempts 来源 | 记录 retry_count |
+|---|---|---|
+| 首次即成功 | 网关返回 1 | 0 |
+| 一次重试后成功 | 网关返回 2 | 1 |
+| 不可重试错误（如 401） | 异常携带 1 | 0（真实） |
+| 可重试错误重试耗尽（如 500×2） | 异常携带 2 | **1（不再误记 0）** |
+| 上下文构建失败 | 显式 0 | 0（可证明无调用） |
+| 取消（provider 调用前后均可能） | 未知 | `null`（unavailable） |
+| Phase 13.3 之前的历史运行 | 无 telemetry | 读为「未记录」，不回填 |
+
+### 数据库变更
+
+**无**：仍无 Alembic migration、无 schema 变化；历史运行不回填/不重写（旧遥测里的
+`retry_count` 是历史事实，保留原值）。
+
+### 修改文件
+
+- `app/services/llm/gateway.py`（尝试次数附加 + `attempts_from_error`）
+- `app/services/llm/__init__.py`（导出）
+- `app/services/analysis_telemetry.py`（`_execution` / `fail_telemetry`）
+- `app/services/analysis.py`（失败、上下文失败、取消三路径）
+- `app/evaluation/model_evaluation.py`（在线失败计数）
+- `app/ui/analysis_dialog.py`（unavailable 展示）
+- 测试：新增 `tests/services/llm/test_gateway_attempts.py`；更新
+  `tests/services/test_analysis_telemetry.py`、`tests/services/test_analysis_service.py`、
+  `tests/evaluation/test_model_evaluation.py`
+- 文档：`docs/analysis.md`、`docs/phase13-evaluation.md`、本文件
+
+### 新增/更新测试
+
+- `test_gateway_attempts.py`（7）：首次成功=1；重试后成功=2；重试耗尽抛出的异常携带
+  真实次数（2 与自定义 3）；不可重试=1；取消路径无次数；`attempts_from_error` 拒绝
+  缺失/0/bool/字符串。
+- `test_analysis_service.py`：新增「重试耗尽记录 retry_count=1」；401 失败断言
+  `retry_count=0`（恰 1 次调用）；上下文失败断言 0；取消断言 `null`。
+- `test_analysis_telemetry.py`：`fail_telemetry(attempts=2)` → retry_count=1；新增
+  `attempts=None` → `null`（unavailable）用例。
+- `test_model_evaluation.py`：在线 401 断言 attempts=1；超时断言 attempts=2。
+
+### 测试运行命令与结果
+
+全量回归：
+
+- **1660 collected / 1655 passed / 5 environment-skipped / 0 failed（退出码 0，8:34）**
+- 增量核对：1651（13.4 完成后）+ 9（13.5 新增：网关尝试次数 7 + 遥测单测 1 +
+  服务集成 1）= 1660 ✓；5 项 Windows symlink 环境 Skip 保持原义。
+
+### Git 提交
+
+| Commit | 说明 |
+|---|---|
+| `99696b4` | fix(analysis)：失败路径记录真实重试次数（unavailable 不伪造 0，含测试） |
+| （本文件提交） | docs(phase13)：记录 Phase 13.5 |
+
+### 与原始计划不同的地方 / 局限
+
+- 取消路径仍按「无法确认」记录 `null`：网关在 provider 调用前后都可能观察到取消，
+  不为了凑数而声称确定次数。
+- 旧运行不回填：历史遥测中的 `retry_count=0` 保持原样；只有新运行使用新语义。
+- 该修复不改变任何业务结果/事实层，仅修正遥测准确性。
+
+---
+
 ## 最终回归（每子阶段后更新）
 
 | 阶段 | collected | passed | skipped | failed | 退出码 |
@@ -741,3 +835,4 @@ Phase 13 的五个子阶段（13.0–13.4）至此完成。后续若继续扩展
 | Phase 13.2 完成后 | 1598 | 1593 | 5 | 0 | 0 |
 | Phase 13.3 完成后 | 1630 | 1625 | 5 | 0 | 0 |
 | Phase 13.4 完成后 | 1651 | 1646 | 5 | 0 | 0 |
+| Phase 13.5 完成后 | 1660 | 1655 | 5 | 0 | 0 |

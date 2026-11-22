@@ -2,7 +2,7 @@
 
 本地优先的人际关系知识库：PySide6 桌面应用，SQLite + SQLAlchemy + Alembic，单用户、不联网、不同步、无账号。**所有模型调用必须由用户显式触发，模型输出永远不是事实。**
 
-当前状态：**Phase 1–13 完成**。Phase 13（Analysis Quality & Evaluation）交付结构化结果契约、来源曝光契约与引用验证、可复现运行遥测、模型评估与对比；Phase 12（人物调查工作台）与 Phase 10 稳定性能力保持不变。最新全量回归：**1651 collected / 1646 passed / 5 environment-skipped / 0 failed（退出码 0）**。
+当前状态：**Phase 1–13 完成（含 13.5 遥测重试次数小修复）**。Phase 13（Analysis Quality & Evaluation）交付结构化结果契约、来源曝光契约与引用验证、可复现运行遥测、模型评估与对比；Phase 12（人物调查工作台）与 Phase 10 稳定性能力保持不变。最新全量回归：**1660 collected / 1655 passed / 5 environment-skipped / 0 failed（退出码 0）**。
 
 ## 核心原则
 
@@ -95,7 +95,7 @@ python -m app.main
 & .\.venv\Scripts\python.exe -s -m pytest -q -ra
 ```
 
-- **当前基线：1651 collected / 1646 passed / 5 environment-skipped / 0 failed（退出码 0）**（Phase 13.4 末）。
+- **当前基线：1660 collected / 1655 passed / 5 environment-skipped / 0 failed（退出码 0）**（Phase 13.5 末）。
 - 5 项 skipped 是 Windows 临时测试 symlink 权限（`tests/storage/test_media_store.py`），保留原测试与原因，**不计为 passed**。
 - 既有阶段基线：Phase 10 `1373 passed`、Phase 11 `1478 passed`、Phase 12 `1511 passed`；详见各阶段验收记录。
 - 真实 Windows DPI 人工验收在 Phase 11/12 记录中标注为「未检查」，不记为通过。

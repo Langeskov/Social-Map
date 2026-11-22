@@ -1,0 +1,233 @@
+"""Phase 14.3 Revision History & Diff Viewer (offscreen Qt, real services)."""
+from datetime import date
+from uuid import uuid4
+
+import pytest
+from PySide6.QtWidgets import QPushButton
+
+from app.config.settings import AppConfig
+from app.services.application import create_application_services
+from app.services.database import initialize_database
+from app.services.change_history import LONG_TEXT_LIMIT
+from app.services.person import PersonService
+from app.services.unit_of_work import transaction
+from app.storage.models import ChangeLogModel
+from app.ui.revision_history import (LongTextDialog, OperationDialog,
+                                     RevisionHistoryDialog)
+from app.ui.evidence_panel import EvidencePanel
+from app.ui.memory_panel import MemoryPanel
+from app.ui.relationship_panel import RelationshipPanel
+
+
+@pytest.fixture
+def env(tmp_path):
+    config = AppConfig(data_dir=tmp_path / "history-ui")
+    runtime = initialize_database(config)
+    services = create_application_services(config, runtime.sessions)
+    try:
+        yield type("Env", (), {"config": config, "runtime": runtime,
+                               "services": services, "ws": services.initial_workspace})()
+    finally:
+        runtime.close()
+
+
+def make_person_with_two_versions(env, name="Alice"):
+    person = env.services.people.create(env.ws.id, name, occupation="Engineer")
+    env.services.people.update(env.ws.id, person.id, occupation="Designer")
+    return person
+
+
+def dialog_for(env, entity_type, entity_id):
+    return RevisionHistoryDialog(env.services, env.ws.id, entity_type, entity_id)
+
+
+def button_texts(widget):
+    return [button.text() for button in widget.findChildren(QPushButton)]
+
+
+def test_dialog_lists_revisions_and_formatted_field_diff(env, qt_app):
+    person = make_person_with_two_versions(env)
+    dialog = dialog_for(env, "PERSON", person.id)
+    qt_app.processEvents()
+    try:
+        assert dialog.list.count() == 2
+        assert "创建" in dialog.list.item(1).text()
+        assert "更新" in dialog.list.item(0).text()
+        dialog.list.setCurrentRow(0)
+        qt_app.processEvents()
+        diff = dialog.diff.toPlainText()
+        assert "职业" in diff and "Engineer" in diff and "Designer" in diff
+        assert '{"' not in diff and "before_snapshot" not in diff
+        assert "恢复字段" not in button_texts(dialog)
+        assert "撤销" not in "".join(button_texts(dialog))
+        assert dialog.operation_button.isEnabled() is True
+    finally:
+        dialog.close()
+
+
+def test_operation_group_dialog_lists_every_row(env, qt_app):
+    alice = env.services.people.create(env.ws.id, "Alice")
+    bob = env.services.people.create(env.ws.id, "Bob")
+    relationship = env.services.relationships.create(env.ws.id, alice.id, bob.id, "COLLEAGUE")
+    dialog = dialog_for(env, "RELATIONSHIP", relationship.id)
+    qt_app.processEvents()
+    try:
+        assert dialog.list.count() == 1
+        dialog.list.setCurrentRow(0)
+        operation_dialog = dialog._show_operation()
+        qt_app.processEvents()
+        assert isinstance(operation_dialog, OperationDialog)
+        assert operation_dialog.list.count() == 2
+        texts = [operation_dialog.list.item(i).text()
+                 for i in range(operation_dialog.list.count())]
+        assert any("关系" in text for text in texts)
+        assert any("追加状态历史" in text for text in texts)
+    finally:
+        dialog.close()
+
+
+def test_relationship_related_history_section(env, qt_app):
+    alice = env.services.people.create(env.ws.id, "Alice")
+    bob = env.services.people.create(env.ws.id, "Bob")
+    relationship = env.services.relationships.create(env.ws.id, alice.id, bob.id, "COLLEAGUE")
+    env.services.relationships.add_history(env.ws.id, relationship.id, "PAUSED")
+    dialog = dialog_for(env, "RELATIONSHIP", relationship.id)
+    qt_app.processEvents()
+    try:
+        assert dialog.related_block.isVisibleTo(dialog) is True
+        assert dialog.related_list.count() == 2
+    finally:
+        dialog.close()
+
+
+def test_legacy_and_empty_history_are_explicit(env, qt_app):
+    plain = PersonService(env.runtime.sessions, media_service=None)
+    legacy = plain.create(env.ws.id, "Legacy")
+    env.services.people.update(env.ws.id, legacy.id, occupation="Engineer")
+    dialog = dialog_for(env, "PERSON", legacy.id)
+    qt_app.processEvents()
+    try:
+        assert dialog.list.count() == 1
+        assert "Phase 14 之前" in dialog.notice.text()
+    finally:
+        dialog.close()
+
+    untracked = plain.create(env.ws.id, "Untracked")
+    empty = dialog_for(env, "PERSON", untracked.id)
+    qt_app.processEvents()
+    try:
+        assert empty.list.count() == 0
+        assert "没有可追溯的历史" in empty.notice.text()
+    finally:
+        empty.close()
+
+
+def test_unknown_snapshot_degrades_without_crash(env, qt_app):
+    person = env.services.people.create(env.ws.id, "Alice")
+    with transaction(env.runtime.sessions) as session:
+        session.add(ChangeLogModel(
+            id=uuid4(), workspace_id=env.ws.id, entity_type="PERSON",
+            entity_id=person.id, action="UPDATE", operation_id=uuid4(),
+            revision_no=2, changed_fields='["display_name"]',
+            before_snapshot='{"display_name":"Old"}',
+            after_snapshot='{"display_name":"New"}', payload_version="999",
+            recorded_at=person.updated_at))
+    dialog = dialog_for(env, "PERSON", person.id)
+    qt_app.processEvents()
+    try:
+        assert dialog.list.count() == 2
+        dialog.list.setCurrentRow(0)
+        qt_app.processEvents()
+        assert "无法解析" in dialog.diff.toPlainText()
+        assert dialog.full_text_button.isEnabled() is False
+    finally:
+        dialog.close()
+
+
+def test_long_text_opens_a_read_only_full_view(env, qt_app):
+    long_text = "长" * (LONG_TEXT_LIMIT + 40)
+    person = env.services.people.create(env.ws.id, "Alice", notes="short")
+    env.services.people.update(env.ws.id, person.id, notes=long_text)
+    dialog = dialog_for(env, "PERSON", person.id)
+    qt_app.processEvents()
+    try:
+        dialog.list.setCurrentRow(0)
+        qt_app.processEvents()
+        assert dialog.full_text_button.isEnabled() is True
+        full = dialog._show_full_text()
+        qt_app.processEvents()
+        assert isinstance(full, LongTextDialog)
+        assert long_text in full.text.toPlainText()
+    finally:
+        dialog.close()
+
+
+def test_archived_person_history_remains_readable(env, qt_app):
+    person = make_person_with_two_versions(env)
+    env.services.people.soft_delete(env.ws.id, person.id)
+    dialog = dialog_for(env, "PERSON", person.id)
+    qt_app.processEvents()
+    try:
+        assert dialog.list.count() == 3
+        assert "归档" in dialog.list.item(0).text()
+    finally:
+        dialog.close()
+
+
+def test_panel_entry_points_expose_read_only_history(env, qt_app):
+    assert hasattr(EvidencePanel(env.services), "history_button")
+    relationship_panel = RelationshipPanel(env.services)
+    assert hasattr(relationship_panel, "change_history_button")
+    memory_panel = MemoryPanel(env.services)
+    assert hasattr(memory_panel, "history_button")
+    for panel in (relationship_panel, memory_panel):
+        panel.deleteLater()
+    qt_app.processEvents()
+
+
+def test_people_page_history_button_opens_the_dialog(env, qt_app):
+    from app.ui.main_window import MainWindow
+
+    window = MainWindow(env.config, env.services)
+    window.show()
+    window.navigation.setCurrentRow(1)
+    qt_app.processEvents()
+    try:
+        page = window.pages.widget(1)
+        person = env.services.people.create(page.workspace_id, "Alice")
+        env.services.people.update(page.workspace_id, person.id, occupation="Engineer")
+        page.refresh_people(person.id)
+        qt_app.processEvents()
+        assert page.current_detail is not None
+        assert page.history_button.isEnabled() is True
+        page.show_person_history()
+        qt_app.processEvents()
+        dialogs = getattr(page, "_revision_history_dialogs", [])
+        assert len(dialogs) == 1
+        assert dialogs[0].list.count() == 2
+    finally:
+        for dialog in getattr(page, "_revision_history_dialogs", []):
+            dialog.close()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_event_detail_dialog_exposes_history_button(env, qt_app):
+    from app.ui.event_detail import EventDetailDialog
+
+    person = env.services.people.create(env.ws.id, "Alice")
+    event = env.services.events.create_event(env.ws.id, "Retro", "MEETING",
+                                             occurred_on=date(2026, 11, 20),
+                                             participants=(person.id,))
+    detail = env.services.events.detail(env.ws.id, event.id)
+    dialog = EventDetailDialog(detail, services=env.services)
+    qt_app.processEvents()
+    try:
+        assert dialog.history_button is not None
+        opened = dialog.show_history()
+        qt_app.processEvents()
+        assert opened is not None and opened.list.count() == 1
+    finally:
+        window = dialog
+        window.close()
+        qt_app.processEvents()

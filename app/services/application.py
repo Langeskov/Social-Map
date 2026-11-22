@@ -14,6 +14,7 @@ from app.services.analysis import AnalysisService
 from app.services.memory import MemoryService
 from app.services.backup import BackupService, BackupVerificationService
 from app.services.change_capture import ChangeLogWriter
+from app.services.change_history import ChangeHistoryService
 from app.services.export import WorkspaceExportService
 from app.services.integrity import DataIntegrityService
 from app.services.llm import LLMConfigStore, LLMGateway
@@ -35,6 +36,7 @@ class ApplicationServices:
     llm: LLMGateway | None = None
     analysis: AnalysisService | None = None
     memories: MemoryService | None = None
+    change_history: ChangeHistoryService | None = None
     integrity: DataIntegrityService | None = None
     backups: BackupService | None = None
     backup_verification: BackupVerificationService | None = None
@@ -58,6 +60,7 @@ def create_application_services(config: AppConfig, sessions, *, llm_gateway=None
         timeline=TimelineService(sessions), dashboard=DashboardService(sessions),
         llm=gateway, analysis=AnalysisService(sessions, gateway),
         memories=MemoryService(sessions, changes=changes),
+        change_history=ChangeHistoryService(sessions),
         integrity=DataIntegrityService(sessions, media_store=store),
         backups=BackupService(config), backup_verification=BackupVerificationService(config),
         exports=WorkspaceExportService(config, sessions))

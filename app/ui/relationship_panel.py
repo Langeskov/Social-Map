@@ -179,6 +179,7 @@ class RelationshipPanel(QWidget):
         self.add_button = self.button(row, "添加关系", self.add_relationship)
         self.state_button = self.button(row, "修改状态", self.change_state)
         self.history_button = self.button(row, "查看 History", self.show_history)
+        self.change_history_button = self.button(row, "变更历史", self.show_change_history)
         layout.addLayout(row)
         row = QHBoxLayout()
         self.delete_button = self.button(row, "删除错误记录", self.delete_relationship)
@@ -341,6 +342,16 @@ class RelationshipPanel(QWidget):
                 self.service.restore(self.workspace_id, view.relationship.id)
                 self.refresh()
             self.run_operation(restore)
+
+    def show_change_history(self):
+        """Read-only ChangeLog timeline/diff for the selected relationship."""
+        view = self.selected()
+        if view is None:
+            return None
+        from app.ui.revision_history import open_revision_history
+        return open_revision_history(
+            self, self.services, self.workspace_id, "RELATIONSHIP",
+            view.relationship.id, title="关系 · 变更历史")
 
     def show_history(self):
         view = self.selected()

@@ -181,6 +181,7 @@ class PeoplePage(ContextPage, QWidget):
         # Phase 8: the model is called only when this button is clicked, never when
         # the page opens or a person is selected.
         self.analyze_button = self.button(row, ANALYZE_LABELS["PERSON"], self.analyze_person)
+        self.history_button = self.button(row, "历史", self.show_person_history)
         body.addLayout(row)
         self.notes = QTextEdit()
         self.notes.setReadOnly(True)
@@ -1150,6 +1151,16 @@ class PeoplePage(ContextPage, QWidget):
             self.current_detail = None
             self.refresh_people()
         self.run_operation(archive)
+
+    def show_person_history(self):
+        """Read-only ChangeLog timeline/diff for the selected person (Phase 14.3)."""
+        detail = self.current_detail
+        if detail is None:
+            return None
+        from app.ui.revision_history import open_revision_history
+        return open_revision_history(
+            self, self.services, self.workspace_id, "PERSON", detail.person.id,
+            title=f"人物 · {detail.person.display_name} · 变更历史")
 
     def analyze_person(self):
         """Phase 8 entry: opens the options dialog; no model call happens here."""

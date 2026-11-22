@@ -31,6 +31,19 @@ def _decode_changed_fields(text: str) -> tuple[str, ...]:
 def _to_domain(model) -> ChangeLogEntry | None:
     if model is None:
         return None
+    try:
+        changed_fields = _decode_changed_fields(model.changed_fields)
+        before = decode_snapshot(model.payload_version, model.before_snapshot)
+        after = decode_snapshot(model.payload_version, model.after_snapshot)
+        metadata = (None if model.metadata_json is None else
+                    decode_json_object(model.metadata_json, where="metadata"))
+        snapshot_error = None
+    except DomainError:
+        # A row written by a future/incompatible payload version (or a corrupted
+        # JSON blob) stays readable as history metadata; the UI must not crash and
+        # must not pretend it can diff/revert such a snapshot.
+        changed_fields, before, after, metadata = (), None, None, None
+        snapshot_error = "无法解析此版本快照"
     return ChangeLogEntry(
         id=model.id,
         workspace_id=model.workspace_id,
@@ -41,13 +54,13 @@ def _to_domain(model) -> ChangeLogEntry | None:
         action=model.action,
         operation_id=model.operation_id,
         revision_no=model.revision_no,
-        changed_fields=_decode_changed_fields(model.changed_fields),
-        before_snapshot=decode_snapshot(model.payload_version, model.before_snapshot),
-        after_snapshot=decode_snapshot(model.payload_version, model.after_snapshot),
+        changed_fields=changed_fields,
+        before_snapshot=before,
+        after_snapshot=after,
         payload_version=model.payload_version,
-        metadata=(None if model.metadata_json is None else
-                  decode_json_object(model.metadata_json, where="metadata")),
+        metadata=metadata,
         recorded_at=model.recorded_at,
+        snapshot_error=snapshot_error,
     )
 
 
@@ -84,12 +97,17 @@ class SQLChangeLogRepository:
             self._query(workspace_id).where(ChangeLogModel.id == entry_id)))
 
     def list_by_entity(self, workspace_id: UUID, entity_type: str, entity_id: UUID, *,
-                       limit: int | None = None, offset: int = 0) -> list[ChangeLogEntry]:
+                       limit: int | None = None, offset: int = 0,
+                       newest_first: bool = False) -> list[ChangeLogEntry]:
         query = self._query(workspace_id).where(
             ChangeLogModel.entity_type == entity_type,
             ChangeLogModel.entity_id == entity_id)
-        return self._list(query.order_by(ChangeLogModel.revision_no, ChangeLogModel.id),
-                          limit=limit, offset=offset)
+        if newest_first:
+            query = query.order_by(ChangeLogModel.revision_no.desc(),
+                                   ChangeLogModel.id.desc())
+        else:
+            query = query.order_by(ChangeLogModel.revision_no, ChangeLogModel.id)
+        return self._list(query, limit=limit, offset=offset)
 
     def list_by_parent(self, workspace_id: UUID, parent_type: str, parent_id: UUID, *,
                        limit: int | None = None, offset: int = 0) -> list[ChangeLogEntry]:

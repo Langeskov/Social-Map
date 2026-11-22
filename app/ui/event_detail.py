@@ -163,6 +163,7 @@ class EventDetailDialog(QDialog):
     def __init__(self, detail, parent=None, *, services=None):
         super().__init__(parent)
         self.setWindowTitle("Event Detail · 事件详情")
+        self.services = services
         self.resize(920, 760)
         layout = QVBoxLayout(self)
         self.controller = None
@@ -180,4 +181,21 @@ class EventDetailDialog(QDialog):
             layout.addWidget(self.detail_view.histories_block)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
+        if services is not None:
+            self.history_button = buttons.addButton(
+                "历史", QDialogButtonBox.ButtonRole.ActionRole)
+            self.history_button.setObjectName("eventHistoryButton")
+            self.history_button.clicked.connect(self.show_history)
         layout.addWidget(buttons)
+
+    def show_history(self):
+        """Read-only ChangeLog timeline/diff for this event (Phase 14.3)."""
+        if self.services is None:
+            return None
+        detail = getattr(self.detail_view, "current_detail", None)
+        if detail is None:
+            return None
+        from app.ui.revision_history import open_revision_history
+        return open_revision_history(
+            self, self.services, detail.event.workspace_id, "EVENT", detail.event.id,
+            title=f"事件 · {detail.event.title} · 变更历史")

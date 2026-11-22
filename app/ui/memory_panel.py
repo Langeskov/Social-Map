@@ -258,6 +258,7 @@ class MemoryPanel(QWidget):
         row = QHBoxLayout()
         self.add_button = self.button(row, "新增 Memory", self.add_memory)
         self.edit_button = self.button(row, "编辑", self.edit_memory)
+        self.history_button = self.button(row, "变更历史", self.show_change_history)
         layout.addLayout(row)
         row = QHBoxLayout()
         self.delete_button = self.button(row, "删除", self.delete_memory)
@@ -466,6 +467,16 @@ class MemoryPanel(QWidget):
                 return self.update_memory(memory, dialog.values())
             return None
         return self.run_operation(edit)
+
+    def show_change_history(self):
+        """Read-only ChangeLog timeline/diff for the selected memory (Phase 14.3)."""
+        memory = self.selected_memory()
+        if memory is None or self.service is None or self.workspace_id is None:
+            return None
+        from app.ui.revision_history import open_revision_history
+        return open_revision_history(
+            self, self.services, self.workspace_id, "MEMORY", memory.id,
+            title="Memory · 变更历史")
 
     def delete_memory(self):
         memory = self.selected_memory()

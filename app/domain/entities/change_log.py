@@ -127,6 +127,10 @@ class ChangeLogEntry:
     parent_entity_type: str | None = None
     parent_entity_id: UUID | None = None
     metadata: Mapping | None = None
+    #: Set by the reader when a stored snapshot cannot be decoded (unknown
+    #: payload_version / malformed JSON). Such a row is still readable as history
+    #: metadata but cannot be diffed or reverted; the UI shows an explicit notice.
+    snapshot_error: str | None = None
 
     def __post_init__(self):
         for name in ("id", "workspace_id", "entity_id", "operation_id"):
@@ -154,10 +158,10 @@ class ChangeLogEntry:
         if self.action in _CREATE_LIKE:
             if before is not None:
                 raise DomainError(f"{self.action} 不应有修改前快照。")
-            if after is None:
+            if after is None and self.snapshot_error is None:
                 raise DomainError(f"{self.action} 必须有修改后快照。")
         else:
-            if before is None or after is None:
+            if self.snapshot_error is None and (before is None or after is None):
                 raise DomainError(f"{self.action} 必须同时记录修改前后快照。")
         parent_type = self.parent_entity_type
         parent_id = self.parent_entity_id

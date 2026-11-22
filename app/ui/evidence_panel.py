@@ -83,6 +83,7 @@ class EvidencePanel(QWidget):
         self.create_button = self.button(row, "新建证据", self.create_evidence)
         self.edit_button = self.button(row, "编辑元数据（标题/注释）", self.edit_metadata)
         self.detail_button = self.button(row, "查看原始内容与附件", self.show_detail)
+        self.history_button = self.button(row, "变更历史", self.show_history)
         self.refresh_button = self.button(row, "刷新证据", self.refresh)
         layout.addLayout(row)
         row = QHBoxLayout()
@@ -342,6 +343,16 @@ class EvidencePanel(QWidget):
             dialog.show()
             return dialog
         return self.run_operation(show)
+
+    def show_history(self):
+        """Read-only ChangeLog timeline/diff for the selected evidence (Phase 14.3)."""
+        detail = self.selected_detail()
+        if detail is None:
+            return None
+        from app.ui.revision_history import open_revision_history
+        return open_revision_history(
+            self, self.services, self.workspace_id, "EVIDENCE", detail.evidence.id,
+            title=f"证据 · {detail.evidence.title} · 变更历史")
 
     def add_media(self):
         detail = self.selected_detail()

@@ -22,6 +22,24 @@ RETRYABLE = (LLMRateLimitError, LLMServerError, LLMTimeoutError, LLMConnectionEr
 DEFAULT_ATTEMPTS = 2
 BACKOFF_SECONDS = 0.5
 
+#: Attribute attached to the final ``LLMError`` raised after retries. It carries
+#: the number of provider calls that were actually made (never estimated).
+ATTEMPTS_ATTRIBUTE = "attempts"
+
+
+def attempts_from_error(exc) -> int | None:
+    """Actual attempt count for a failed call, or ``None`` when unknowable.
+
+    The gateway attaches :data:`ATTEMPTS_ATTRIBUTE` when it exhausts retries or
+    stops on a non-retryable error. A cancellation raised outside the retry loop
+    (or any foreign exception) has no trustworthy count, so it stays ``None`` —
+    callers must record "unavailable" rather than fabricate ``0``.
+    """
+    value = getattr(exc, ATTEMPTS_ATTRIBUTE, None)
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+        return value
+    return None
+
 
 class Cancellable(Protocol):
     @property
@@ -103,8 +121,10 @@ class LLMGateway:
                            cancel: Cancellable | None = None) -> tuple[ChatResponse, int]:
         """Like ``chat`` but also reports how many attempts were actually used.
 
-        The attempt count is the only accurate retry signal; callers must not
-        estimate one from timings.
+        The same count is attached to the final raised ``LLMError`` (see
+        :func:`attempts_from_error`) so a run that ends in FAILED still records
+        the true attempt count. The attempt count is the only accurate retry
+        signal; callers must not estimate one from timings.
         """
         provider = self.provider(provider_name)
         last: LLMError | None = None
@@ -116,6 +136,7 @@ class LLMGateway:
             except LLMError as exc:
                 last = exc
                 if not isinstance(exc, RETRYABLE) or attempt >= self.attempts:
+                    setattr(exc, ATTEMPTS_ATTRIBUTE, attempt)
                     raise
                 self._sleeper(BACKOFF_SECONDS * attempt)
                 continue

@@ -41,7 +41,8 @@ from app.services.analysis_telemetry import (PROMPT_TEMPLATE_VERSION,
                                              prompt_template_hash,
                                              request_payload_hash)
 from app.services.context import AnalysisRequest, ContextBuilder
-from app.services.llm import ChatRequest, LLMError, LLMTimeoutError
+from app.services.llm import (ChatRequest, LLMError, LLMTimeoutError,
+                              attempts_from_error)
 from app.services.llm.response_metadata import finish_reason, usage_summary
 from app.services.prompt import PromptBuilder
 from app.services.reference_verification import ReferenceVerifier
@@ -532,7 +533,8 @@ def run_online_model_evaluation(dataset: EvaluationDataset, *, gateway, provider
                 outcome = ModelCallOutcome(
                     status="FAILED", error_class=type(exc).__name__,
                     error_message=str(exc), timed_out=isinstance(exc, LLMTimeoutError),
-                    attempts=None, duration_ms=duration_ms)
+                    # Real count when the gateway proves it; None otherwise.
+                    attempts=attempts_from_error(exc), duration_ms=duration_ms)
                 with transaction(materialized.runtime.sessions) as session:
                     repositories = sql_analysis_repositories(session)
                     result = _evaluate_one(

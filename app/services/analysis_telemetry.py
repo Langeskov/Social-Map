@@ -103,9 +103,12 @@ def build_request_telemetry(request: ChatRequest, *, provider_name, requested_mo
     return telemetry
 
 
-def _execution(*, status, duration_ms, retry_count, error_class=None) -> dict:
+def _execution(*, status, duration_ms, attempts: int | None, error_class=None) -> dict:
+    # ``attempts`` is the real number of provider calls; None means the caller
+    # cannot prove it (e.g. cancellation) and is stored as null, never as 0.
+    retry_count = None if attempts is None else max(0, int(attempts) - 1)
     block = {"status": status, "duration_ms": max(0, int(duration_ms)),
-             "retry_count": max(0, int(retry_count))}
+             "retry_count": retry_count}
     if error_class:
         block["error_class"] = error_class
     return block
@@ -120,15 +123,22 @@ def complete_telemetry(telemetry: dict, response, *, attempts: int, duration_ms:
                           "usage": usage_summary(response.usage),
                           "provider_request_id": _short(response.raw_id)}
     merged["execution"] = _execution(status=status, duration_ms=duration_ms,
-                                     retry_count=max(0, attempts - 1))
+                                     attempts=attempts)
     return merged
 
 
 def fail_telemetry(telemetry: dict | None, *, status: str, duration_ms: int,
-                   error_class: str) -> dict:
-    """Execution metadata for a failed/cancelled run (no fabricated response)."""
+                   error_class: str, attempts: int | None) -> dict:
+    """Execution metadata for a failed/cancelled run (no fabricated response).
+
+    ``attempts`` is the actual provider-call count when known (``1`` for a
+    non-retryable first failure, ``N`` for exhausted retries); ``None`` when the
+    path cannot prove it, which is stored as ``retry_count: null`` (unavailable)
+    instead of a misleading ``0``.
+    """
     merged = dict(telemetry or {"version": TELEMETRY_VERSION})
-    merged["execution"] = _execution(status=status, duration_ms=duration_ms, retry_count=0,
+    merged["execution"] = _execution(status=status, duration_ms=duration_ms,
+                                     attempts=attempts,
                                      error_class=_short(error_class, 80))
     return merged
 

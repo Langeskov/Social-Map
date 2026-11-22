@@ -5,7 +5,8 @@ from app.services.llm.errors import (LLMAuthError, LLMCancelledError, LLMConfigE
                                      LLMConnectionError, LLMContextTooLargeError, LLMCredentialError,
                                      LLMError, LLMNotFoundError, LLMRateLimitError, LLMResponseError,
                                      LLMServerError, LLMTimeoutError)
-from app.services.llm.gateway import CancelToken, LLMGateway
+from app.services.llm.gateway import (ATTEMPTS_ATTRIBUTE, CancelToken, LLMGateway,
+                                      attempts_from_error)
 from app.services.llm.provider import (ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_USER, ChatMessage,
                                        ChatRequest, ChatResponse, LLMProvider,
                                        OpenAICompatibleProvider, ProviderStatus)
@@ -16,7 +17,8 @@ from app.services.llm.response_metadata import (FINISH_CATEGORIES, FINISH_CONTEN
 from app.services.llm.transport import FakeTransport, HttpResponse, UrllibTransport
 
 __all__ = [
-    "CancelToken", "ChatMessage", "ChatRequest", "ChatResponse", "CredentialResolver",
+    "CancelToken", "ATTEMPTS_ATTRIBUTE", "ChatMessage", "ChatRequest", "ChatResponse",
+    "CredentialResolver", "attempts_from_error",
     "FakeTransport", "HttpResponse", "InMemoryCredentialStore", "LLMAuthError", "LLMCancelledError",
     "LLMConfig", "LLMConfigError", "LLMConfigStore", "LLMConnectionError", "LLMContextTooLargeError",
     "LLMCredentialError", "LLMError", "LLMGateway", "LLMNotFoundError", "LLMProvider",

@@ -204,7 +204,8 @@ def telemetry_metadata(telemetry) -> list:
         ("请求 Hash（SHA-256 前 12 位）", "请求 Hash（SHA-256 前 12 位）",
          missing if not request_hash else f"{request_hash[:12]}…"),
         ("重试次数", "重试次数",
-         missing if telemetry is None or retry_count is None else str(retry_count)),
+         missing if telemetry is None else
+         ("unavailable（无法确认）" if retry_count is None else str(retry_count))),
     ]
 
 

@@ -451,6 +451,22 @@ def test_failed_run_records_execution_telemetry_without_response(env):
     assert "response" not in telemetry
     assert telemetry["execution"]["status"] == "FAILED"
     assert telemetry["execution"]["error_class"] == "LLMAuthError"
+    # Non-retryable: exactly one provider call, so retry_count is really 0.
+    assert telemetry["execution"]["retry_count"] == 0
+    assert len(env.transport.requests) == 1
+
+
+def test_exhausted_retries_record_the_real_retry_count(env):
+    # Two 5xx responses: the gateway retries once and then fails; the recorded
+    # retry count must be 1, not the old hard-coded 0.
+    env.transport.set_default(chat_response(status=500))
+    run = env.services.analysis.create_run(request_for(env))
+    assert run.status == "FAILED"
+    telemetry = env.services.analysis.get(env.ws, run.id).telemetry
+    assert len(env.transport.requests) == 2
+    assert telemetry["execution"]["status"] == "FAILED"
+    assert telemetry["execution"]["error_class"] == "LLMServerError"
+    assert telemetry["execution"]["retry_count"] == 1
 
 
 def test_context_failure_records_partial_execution_telemetry(env):
@@ -461,6 +477,8 @@ def test_context_failure_records_partial_execution_telemetry(env):
     assert "context_snapshot_hash" not in telemetry["request"]   # context never built
     assert telemetry["execution"]["status"] == "FAILED"
     assert telemetry["execution"]["error_class"] == "DomainError"
+    # No provider call happened at all: 0 attempts is provable here.
+    assert telemetry["execution"]["retry_count"] == 0
 
 
 def test_old_run_without_telemetry_reads_as_unrecorded(env):
@@ -505,7 +523,7 @@ def test_cancel_run_marks_telemetry_cancelled(env):
     assert cancelled.status == "CANCELLED"
     stored = env.services.analysis.get(env.ws, run.id).telemetry
     assert stored["execution"] == {"status": "CANCELLED", "duration_ms": 0,
-                                   "retry_count": 0, "error_class": "Cancelled"}
+                                   "retry_count": None, "error_class": "Cancelled"}
 
 
 def test_scope_request_part_is_immutable_while_telemetry_is_append_only(env):

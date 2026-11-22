@@ -232,6 +232,7 @@ def test_online_failure_is_recorded_not_dropped(dataset, tmp_path):
     item = result.results[0]
     assert item.outcome.status == "FAILED"
     assert item.outcome.error_class == "LLMAuthError"
+    assert item.outcome.attempts == 1              # non-retryable, one call
     assert len(result.failures) == 1
     assert item.metric("PARSE_VALIDITY").status == "N/A"       # nothing measured
     assert "请求失败" in item.metric("PARSE_VALIDITY").reason
@@ -249,6 +250,7 @@ def test_online_timeout_is_marked(dataset, tmp_path):
     item = result.results[0]
     assert item.outcome.status == "FAILED"
     assert item.outcome.timed_out is True
+    assert item.outcome.attempts == 2              # exhausted retries, real count
     assert len(transport.requests) == 2             # gateway retried a transient error
 
 

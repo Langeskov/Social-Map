@@ -141,11 +141,19 @@ def test_missing_usage_stays_unavailable_in_telemetry():
 def test_fail_telemetry_records_execution_only():
     failed = fail_telemetry(build_partial_request_telemetry(
         provider_name="fake", requested_model="fake-model"),
-        status="FAILED", duration_ms=42, error_class="LLMAuthError")
+        status="FAILED", duration_ms=42, error_class="LLMAuthError", attempts=2)
     assert failed["execution"]["status"] == "FAILED"
     assert failed["execution"]["error_class"] == "LLMAuthError"
-    assert failed["execution"]["retry_count"] == 0
+    assert failed["execution"]["retry_count"] == 1     # attempts - 1
     assert "response" not in failed
+
+
+def test_fail_telemetry_records_unavailable_when_attempts_are_unknown():
+    failed = fail_telemetry(build_partial_request_telemetry(
+        provider_name="fake", requested_model="fake-model"),
+        status="CANCELLED", duration_ms=0, error_class="Cancelled", attempts=None)
+    assert failed["execution"]["retry_count"] is None   # never fabricated as 0
+    assert failed["execution"]["status"] == "CANCELLED"
 
 
 def test_scope_telemetry_roundtrip_and_malformed_records():

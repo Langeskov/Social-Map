@@ -29,6 +29,7 @@ from app.services.analysis_telemetry import (build_partial_request_telemetry,
                                             telemetry_from_scope)
 from app.services.context import (AnalysisRequest, ContextBuilder, ContextSnapshot,
                                   snapshot_from_mapping)
+from app.services.llm import attempts_from_error
 from app.services.operations import write_operation
 from app.services.prompt import PromptBuilder
 from app.services.rules import workspace_required
@@ -190,7 +191,9 @@ class AnalysisService:
             return self._fail(
                 run_id, request.workspace_id, exc, started_wall, scope=scope,
                 telemetry=build_partial_request_telemetry(
-                    provider_name=entry.provider_name, requested_model=entry.model))
+                    provider_name=entry.provider_name, requested_model=entry.model),
+                # Context building failed before any provider call was made.
+                attempts=0)
 
         messages = self._prompt.build(snapshot)
         request_payload = _chat_request(entry, messages)
@@ -217,7 +220,8 @@ class AnalysisService:
                 request_payload, provider_name=entry.provider_name, cancel=cancel)
         except Exception as exc:
             return self._fail(run_id, request.workspace_id, exc, started_wall, scope=scope,
-                              telemetry=telemetry)
+                              telemetry=telemetry,
+                              attempts=attempts_from_error(exc))
 
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
@@ -246,8 +250,10 @@ class AnalysisService:
                 scope = {}
             telemetry = telemetry_from_scope(scope)
             if telemetry is not None:
+                # The cancellation endpoint cannot prove how many provider calls
+                # already happened; record unavailable (null), not a fake 0.
                 cancelled = fail_telemetry(telemetry, status="CANCELLED", duration_ms=0,
-                                           error_class="Cancelled")
+                                           error_class="Cancelled", attempts=None)
                 finished = replace(finished, scope=json.dumps(
                     scope_with_telemetry(scope, cancelled), ensure_ascii=False))
             return repositories.runs.update(finished)
@@ -276,7 +282,8 @@ class AnalysisService:
         return replace(run, status=status, result=result, error_message=error_message,
                        completed_at=finished_at, duration_ms=max(0, duration))
 
-    def _fail(self, run_id, workspace_id, exc, started_wall, *, scope, telemetry) -> AnalysisRun:
+    def _fail(self, run_id, workspace_id, exc, started_wall, *, scope, telemetry,
+              attempts: int | None) -> AnalysisRun:
         from app.services.llm import LLMCancelledError, LLMError
         status = "CANCELLED" if isinstance(exc, LLMCancelledError) else "FAILED"
         message = str(exc) if isinstance(exc, (LLMError, DomainError)) else "分析失败，请查看本地日志。"
@@ -291,7 +298,8 @@ class AnalysisService:
                                     started_wall=started_wall, error_message=message)
             failed_telemetry = fail_telemetry(telemetry, status=status,
                                               duration_ms=failed.duration_ms or 0,
-                                              error_class=type(exc).__name__)
+                                              error_class=type(exc).__name__,
+                                              attempts=attempts)
             failed = replace(failed, scope=json.dumps(
                 scope_with_telemetry(scope or {}, failed_telemetry), ensure_ascii=False))
             return repositories.runs.update(failed)

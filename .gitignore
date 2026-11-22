@@ -13,3 +13,5 @@ pytest-of-*/
 .test-runs/
 permission-recovery/
 evaluation-runs/
+AGENTS.md
+项目.txt

@@ -120,4 +120,4 @@ Remove-Item -Recurse -Force .test-runs, .pytest_cache -ErrorAction SilentlyConti
 
 ## 下一步
 
-Phase 13 已完成，不会自动进入下一阶段。后续工作（如独立 Evaluation Viewer、人工复核结果采集、Judge 实验记录、Revision 等）需用户明确指派。仓库无 remote，不推送。
+Phase 13 已完成，不会自动进入下一阶段。后续工作（如独立 Evaluation Viewer、人工复核结果采集、Judge 实验记录、Revision 等）需用户明确指派。代码已发布到用户自有 GitHub 仓库（origin: Langeskov/Social-Map）；仓库无自动同步、无 CI。

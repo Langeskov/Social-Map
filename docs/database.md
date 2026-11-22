@@ -21,7 +21,7 @@ Repository 接收当前 Session，save 可以 flush 以确保外键次序；**�
 
 ## 模型、类型和约束
 
-[正式模型](<../app/storage/models.py>)：workspace、person、person_alias、media、person_media、relationship、relationship_history、event、event_participant、evidence、evidence_media。Base 使用统一命名规则；PK/FK/UNIQUE/INDEX/CHECK 名称稳定。正式 schema 不通过 create_all 生成。
+[正式模型](<../app/storage/models.py>)：workspace、person、person_alias、media、person_media、relationship、relationship_history、event、event_participant、evidence、evidence_media。0009 另建 `change_log`（append-only 操作审计表，不属于十一张事实表、无业务状态语义；见 [Phase 14 设计](<phase14-design.md>)）。Base 使用统一命名规则；PK/FK/UNIQUE/INDEX/CHECK 名称稳定。正式 schema 不通过 create_all 生成。
 
 Domain UUID 映射 SQLAlchemy Uuid。Domain 时间只接受 aware datetime；[UTCDateTime](<../app/storage/types.py>) 绑定时统一转 UTC，SQLite 保存 UTC 墙钟值并在读取恢复 UTC tzinfo，PostgreSQL 使用 timezone-aware timestamp。naive datetime 被拒绝；birthday 是 date。
 
@@ -37,13 +37,13 @@ Domain UUID 映射 SQLAlchemy Uuid。Domain 时间只接受 aware datetime；[UT
 
 ## 迁移与启动
 
-[迁移配置](<../alembic.ini>) 没有硬编码 URL；env 通过同一 AppConfig 创建 Engine、加载九模型 metadata。历史 revision：
+[迁移配置](<../alembic.ini>) 没有硬编码 URL；env 通过同一 AppConfig 创建 Engine、加载全部映射模型 metadata。历史 revision：
 
 ```text
-0001_empty_initial → 0002_workspace_person_media → 0003_relationship → 0004_event → 0005_evidence → 0006_search_projection → 0007_analysis → 0008_memory
+0001_empty_initial → 0002_workspace_person_media → 0003_relationship → 0004_event → 0005_evidence → 0006_search_projection → 0007_analysis → 0008_memory → 0009_change_log
 ```
 
-0001 只有版本表；0002 建立五张业务表；0003新增关系与History两表；0004新增Event／Participant并batch扩展History.event_id；0005新增Evidence／EvidenceMedia两表，达到十一张业务表；**0006 只新增搜索投影基础设施**（`search_document` 普通表 + `search_document_fts` FTS5 虚表），不新增业务事实表、不改事实表结构；**0007 新增分析层 5 张表**（analysis_run 与 person／relationship／event／evidence 四张来源关联表）；**0008 只新增 `memory` 一张表**（用户确认的长期记忆，复合 FK 保证不跨 Workspace 引用 Person 或 AnalysisRun）。三者都不动事实表。旧迁移未修改。离线SQLite SQL仅使用迁移内冻结的History定义作copy_from，在线batch仍反射，保留原列与命名约束。Default Workspace 不在迁移中插入，而由应用装配后的 WorkspaceService 幂等创建。
+0001 只有版本表；0002 建立五张业务表；0003新增关系与History两表；0004新增Event／Participant并batch扩展History.event_id；0005新增Evidence／EvidenceMedia两表，达到十一张业务表；**0006 只新增搜索投影基础设施**（`search_document` 普通表 + `search_document_fts` FTS5 虚表），不新增业务事实表、不改事实表结构；**0007 新增分析层 5 张表**（analysis_run 与 person／relationship／event／evidence 四张来源关联表）；**0008 只新增 `memory` 一张表**（用户确认的长期记忆，复合 FK 保证不跨 Workspace 引用 Person 或 AnalysisRun）；**0009 只新增 `change_log` 一张 append-only 审计表**（真实 Workspace 外键 + 多态实体引用 + 唯一 revision + 白名单 JSON 快照；由 Phase 14.2 起的 Service 写入）。各步都不动既有事实表。旧迁移未修改。离线SQLite SQL仅使用迁移内冻结的History定义作copy_from，在线batch仍反射，保留原列与命名约束。Default Workspace 不在迁移中插入，而由应用装配后的 WorkspaceService 幂等创建。
 
 ```powershell
 python -m alembic upgrade head
@@ -56,7 +56,7 @@ python -m alembic -x config=C:\config\runtime.toml upgrade head
 
 空库自动迁移；有未知表但无版本的库拒绝接管；旧/未知 revision 拒绝启动，需显式迁移；缺失/多 head 脚本拒绝初始化。失败清理Engine，正常窗口关闭dispose。源码/可编辑安装已验证；wheel/exe迁移资源分发仍待完成。
 
-**downgrade 0007 丢弃分析层 5 张表；downgrade 0006 只丢弃可重建的搜索投影；downgrade 0004 会丢弃 Event／Participant／event_id 引用，downgrade 0005 会丢弃 Evidence／EvidenceMedia，但原七表事实保留；downgrade 0002 会删除关系与History；降到0001还会删除原五表，不是恢复备份！** 测试仅用临时库，保留旧循环，并增加seeded 0003→0004→0003→0004、seeded 0004→0005→0004→0005、0005→0006→0005→0006、0006→0007→0006→0007、迁移失败整体回滚、offline SQL真实执行往返和Alembic command.check。
+**downgrade 0008 只丢弃 `memory`，downgrade 0009 只丢弃 `change_log`；downgrade 0007 丢弃分析层 5 张表；downgrade 0006 只丢弃可重建的搜索投影；downgrade 0004 会丢弃 Event／Participant／event_id 引用，downgrade 0005 会丢弃 Evidence／EvidenceMedia，但原七表事实保留；downgrade 0002 会删除关系与History；降到0001还会删除原五表，不是恢复备份！** 测试仅用临时库，保留旧循环，并增加seeded 0003→0004→0003→0004、seeded 0004→0005→0004→0005、0005→0006→0005→0006、0006→0007→0006→0007、迁移失败整体回滚、offline SQL真实执行往返和Alembic command.check。
 
 **SQLite 临时目录：** 创建与删除 FTS5 虚表需要可写临时目录，否则 SQLite 报 `SQLITE_CANTOPEN`。受限宿主（本仓库开发环境）通过 `SQLITE_TMPDIR`／`TMPDIR`／`TEMP`／`TMP` 指向可写目录解决，见 [conftest.py](<../conftest.py>)。
 

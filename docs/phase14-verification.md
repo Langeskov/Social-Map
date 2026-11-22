@@ -115,7 +115,101 @@ Migration `0009_change_log` 只计划在 14.1 实施（用户审核设计后）�
 
 ## Phase 14.1 — ChangeLog Persistence Foundation
 
-（待实施）
+### 1. 本阶段结论
+
+**完成**（按 14.0 已确认设计）：新增 Migration `0009_change_log`、Domain 契约、
+append-only ORM 模型与守卫、Repository 接口与 SQL adapter、白名单快照 Serializer、
+只读 `ChangeLogService` 查询基础。**未接入任何业务 Service、无历史 UI、无恢复、无旧历史
+补录**；既有事实表与 Phase 1–13 行为不变。
+
+### 2. 实际修改内容
+
+- **Domain**：新增 `app/domain/entities/change_log.py`（ENTITY_TYPES / ACTIONS /
+  ALLOWED_ACTIONS / PAYLOAD_VERSION / `ChangeLogEntry` 契约与 canonical JSON 编解码），
+  并加入 `app/domain/entities/__init__.py` 导出。
+- **Storage**：`app/storage/models.py` 新增 `ChangeLogModel`（表 `change_log`）与
+  `before_update`/`before_delete` 追加式守卫；新增 `app/storage/change_log_repositories.py`
+  （只 add/get/list/get_revision/latest_revision，无 update/delete）。
+- **Repository 接口**：新增 `app/repositories/change_log_interfaces.py`（Protocol，
+  append + 查询，无变更方法）。
+- **Migration**：新增 `alembic/versions/0009_change_log.py`（只建一表 + 三索引 + 约束，
+  downgrade 逆序删除；不动既有表）。
+- **Service（只读）**：新增 `app/services/change_log.py`（`ChangeLogService`：按实体/
+  父实体/operation/指定 revision/最新版本查询，Workspace 隔离与分页校验）与
+  `app/services/change_log_repositories.py` 装配。
+- **Serialization**：新增 `app/services/change_serialization.py`（每实体白名单、
+  集合快照排序、canonical 编码、payload_version 解码、changed_fields 顺序）。
+- **Tests**：新增 `tests/services/test_change_serialization.py`、
+  `tests/services/test_change_log_service.py`、
+  `tests/repositories/test_change_log_repository.py`、
+  `tests/migrations/test_change_log_migration.py`；同步更新 head/表集合断言的既有迁移
+  与初始化测试（0009、change_log）。
+- **Docs**：更新 `docs/architecture.md`（变更审计层）、`docs/database.md`（0009 与
+  downgrade）、`docs/phase14-design.md`（14.1 实施说明）。
+
+### 3. 关键设计决定（本阶段落地）
+
+1. **单表 + 逻辑 Revision**：未建 Revision 表；`revision_no` 唯一约束由数据库兜底。
+2. **只追加**：Repository 无 update/delete；ORM 守卫拒绝修改/删除；不宣称触发器保护。
+3. **多态实体引用**：仅 `workspace_id` 真实外键；实体/父引用由 Writer（14.2）与完整性
+   审计（14.4）校验；唯一约束 `(workspace_id, entity_type, entity_id, revision_no)`。
+4. **`metadata` 命名**：SQLAlchemy Declarative 保留属性名冲突 → ORM 属性 `metadata_json`，
+   数据库列仍为 `metadata`，Domain 字段仍为 `metadata`。
+5. **无旧历史补录**：迁移不写行；旧实体首次记录 revision_no=1（14.2 起）。
+6. **写入口仍未启用**：14.1 不调用 Writer，应用运行时不会产生 ChangeLog 行。
+
+### 4. 数据库变化
+
+- 新增唯一 Migration：`0009_change_log`（down_revision `0008_memory`）。
+- 新表 `change_log`：真实 `workspace_id` 外键、多态实体引用、唯一 revision、
+  JSON 快照列、`recorded_at`；CHECK：实体类型/操作类型/revision ≥1/parent 成对/
+  payload_version 非空/changed_fields 非空。
+- 既有表未修改；迁移不写数据；downgrade 只删除 `change_log` 及索引；
+  现有数据升级后逐行保留（有测试）。
+- Alembic head：`0008_memory` → **`0009_change_log`**。
+
+### 5. 测试运行命令与结果
+
+```powershell
+& .\.venv\Scripts\python.exe -s -m pytest -q -ra
+```
+
+- **1686 collected / 1681 passed / 5 environment-skipped / 0 failed（退出码 0，8:37）**
+- 增量核对：1660（Phase 14.0 基线）+ 26（Phase 14.1 新增：迁移 4 + 仓储 8 +
+  序列化 10 + 只读 Service 4）= 1686；既有迁移/初始化 head 断言已更新但未削弱；
+  5 项 Windows symlink 环境 Skip 保持原义。
+
+新增/更新的针对性测试（14.1 范围）：
+
+- 迁移：建表/列/可空/约束/索引、upgrade/downgrade 往返、数据保留、非法行拒绝、
+  offline SQL 渲染与在全新库执行；
+- 仓储：roundtrip/canonical JSON/Workspace 隔离/事务/唯一 revision/CHECK/FK/
+  ORM 追加式守卫/无 update-delete API/分页与父查询；
+- 序列化：8 类白名单、日期/时间/UUID/None 归一、集合排序、changed_fields 顺序、
+  未知实体/缺字段/非法版本拒绝；
+- 只读 Service：排序/分页/隔离/revision/operation/父查询/参数校验/无写 API。
+
+### 6. 已知问题和风险
+
+1. **未接入业务 Service**：应用当前不会产生审计行；14.2 之前"历史为空"是预期行为。
+2. **revision_no 并发**：写事务内 MAX+1，唯一约束兜底；单用户下可接受，14.2 需验证。
+3. **多态孤儿风险**：数据库无法外键到实体，14.4 完整性审计补齐检测。
+4. **快照体积**：全量白名单快照（非 diff），Evidence 大文本与媒体二进制已排除。
+5. **head 断言更新**：多处历史迁移测试同步到 0009（未弱化旧 revision 断言）。
+
+### 7. 下一阶段（14.2）前置条件
+
+- ✅ Migration 0009 可升级/降级；表与索引经测试；旧数据升级无损。
+- ✅ Repository 只追加、Serializer 白名单与版本化就绪；只读查询可用。
+- ⏳ 14.2 需要：`ChangeOperationContext` + `ChangeLogWriter`（同事务写入）、
+  按审计矩阵接入各 Service、事务/回滚/operation 分组/无变化不记测试。
+- 14.2 禁止：UI、恢复、旧历史补录、改 RelationshipHistory/Evidence 规则。
+
+### 8. Git 状态
+
+- 分支：`phase-14-revision-changelog`
+- 本阶段提交：`18dba28`（代码 + 测试，含迁移 0009）；文档提交紧随本记录
+- 是否推送远端：**否**
 
 ---
 
@@ -142,3 +236,4 @@ Migration `0009_change_log` 只计划在 14.1 实施（用户审核设计后）�
 | 阶段完成后 | Collected | Passed | Failed | Skipped | Exit |
 |---|---|---|---|---|---|
 | 14.0（设计，无代码改动） | 1660 | 1655 | 0 | 5 | 0 |
+| 14.1（ChangeLog 持久化基础） | 1686 | 1681 | 0 | 5 | 0 |

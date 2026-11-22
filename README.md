@@ -2,12 +2,12 @@
 
 本地优先的人际关系知识库：PySide6 桌面应用，SQLite + SQLAlchemy + Alembic，单用户、不联网、不同步、无账号。**所有模型调用必须由用户显式触发，模型输出永远不是事实。**
 
-当前状态：**Phase 1–13 完成（含 13.5 遥测重试次数小修复）；Phase 14（Revision & ChangeLog）14.0 设计阶段完成、代码与迁移尚未开始**。Phase 13（Analysis Quality & Evaluation）交付结构化结果契约、来源曝光契约与引用验证、可复现运行遥测、模型评估与对比；Phase 12（人物调查工作台）与 Phase 10 稳定性能力保持不变。最新全量回归：**1660 collected / 1655 passed / 5 environment-skipped / 0 failed（退出码 0）**。
+当前状态：**Phase 1–13 完成（含 13.5 遥测重试次数小修复）；Phase 14.0 设计完成、Phase 14.1 ChangeLog 持久化基础完成；14.2–14.4（业务接入/历史 UI/受控恢复）尚未实现**。Phase 13（Analysis Quality & Evaluation）交付结构化结果契约、来源曝光契约与引用验证、可复现运行遥测、模型评估与对比；Phase 12（人物调查工作台）与 Phase 10 稳定性能力保持不变。最新全量回归：**1686 collected / 1681 passed / 5 environment-skipped / 0 failed（退出码 0）**。
 
 ## 核心原则
 
 - **事实层**（11 张业务表）只由用户录入与编辑；**Memory** 是用户确认过的长期语义（USER）；模型输出/推断/派生（DERIVED）永不写回事实。
-- 无 Sync / OCR / RAG / 向量库 / 自动 Memory / 自动关系判断；程序不插入示例数据。Phase 14 将按设计文档提供**受审计范围限制**的 ChangeLog / Revision（实体修订历史），当前尚未实现。
+- 无 Sync / OCR / RAG / 向量库 / 自动 Memory / 自动关系判断；程序不插入示例数据。Phase 14 按设计文档提供**受审计范围限制**的 ChangeLog / Revision：14.1 已建立 append-only 持久化基础（`change_log` 表、Repository、Serializer、只读查询），**业务 Service 尚未接入，当前运行不会产生历史**；14.3/14.4 的历史 UI 与恢复尚未实现。
 - 模型调用由用户点击触发；`include_memories` 默认关闭；分析、评估、审计都不修改事实。
 - 单一 Workspace 上下文与 Context Reset；界面不显示开发阶段编号；无动画。
 
@@ -80,7 +80,7 @@ python -m app.main
 
 ## 数据库升级
 
-旧库不会静默升级：升级前关闭程序并用 Settings 的 `[Create Backup]`（或整个数据根目录副本）留底，升级本身不是备份。当前 head 为 `0008_memory`；**Phase 13 无新 migration、无 schema 变更**。
+旧库不会静默升级：升级前关闭程序并用 Settings 的 `[Create Backup]`（或整个数据根目录副本）留底，升级本身不是备份。当前 head 为 **`0009_change_log`**（Phase 14.1 新增 append-only ChangeLog 表）；Phase 13 无新 migration。
 
 ```powershell
 & .\.venv\Scripts\python.exe -s -m alembic upgrade head
@@ -95,7 +95,7 @@ python -m app.main
 & .\.venv\Scripts\python.exe -s -m pytest -q -ra
 ```
 
-- **当前基线：1660 collected / 1655 passed / 5 environment-skipped / 0 failed（退出码 0）**（Phase 13.5 末）。
+- **当前基线：1686 collected / 1681 passed / 5 environment-skipped / 0 failed（退出码 0）**（Phase 14.1 末）。
 - 5 项 skipped 是 Windows 临时测试 symlink 权限（`tests/storage/test_media_store.py`），保留原测试与原因，**不计为 passed**。
 - 既有阶段基线：Phase 10 `1373 passed`、Phase 11 `1478 passed`、Phase 12 `1511 passed`；详见各阶段验收记录。
 - 真实 Windows DPI 人工验收在 Phase 11/12 记录中标注为「未检查」，不记为通过。
@@ -120,4 +120,4 @@ Remove-Item -Recurse -Force .test-runs, .pytest_cache -ErrorAction SilentlyConti
 
 ## 下一步
 
-Phase 14.0（ChangeLog 设计）已完成，等待用户审核；14.1–14.4 需用户逐阶段明确指派，不会自动推进。代码已发布到用户自有 GitHub 仓库（origin: Langeskov/Social-Map）；仓库无自动同步、无 CI。
+Phase 14.0 设计已确认、14.1 ChangeLog 持久化基础已完成；14.2（业务事务接入）、14.3（历史与差异 UI）、14.4（受控恢复）需用户逐阶段明确指派，不会自动推进。代码已发布到用户自有 GitHub 仓库（origin: Langeskov/Social-Map）；仓库无自动同步、无 CI。

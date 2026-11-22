@@ -345,6 +345,11 @@ ChangeLog 只记录 **Recorded Time**；不得把 `occurred_on`/`effective_at`/`
 JSON 内容校验保持在 Serializer / Repository（与现有 scope/context_snapshot 一致，不对 JSON
 加 SQLite 函数约束，避免依赖 JSON1 编译选项）。
 
+**14.1 实施说明**：迁移 `0009_change_log` 与 ORM 按上表落地；`metadata` 是 SQLAlchemy
+Declarative 的保留属性名，因此 ORM 属性为 `metadata_json`、数据库列名仍为 `metadata`
+（Repository 负责编解码，Domain 字段仍叫 `metadata`）。Repository 只提供 `add`/查询，
+无 update/delete；Writer、业务接入、UI 与恢复仍未实现。
+
 ### 5.2 action 枚举
 
 `CREATE, UPDATE, ARCHIVE, RESTORE, IMPORT, APPEND_HISTORY, ATTACH_EVENT, DETACH_EVENT,

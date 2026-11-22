@@ -2,7 +2,7 @@
 
 ## 当前实现
 
-Phase 1 Qt 骨架、Phase 2 数据库、Phase 3 Workspace／Person／Media、Phase 4 Relationship／RelationshipHistory、Phase 5 Event／EventParticipant、Phase 6 Evidence／EvidenceMedia、Phase 7 投影层（Unified Search／Timeline／Relationship Graph／Dashboard）、Phase 8 分析层（LLM Provider／ContextBuilder／AnalysisRun／AnalysisSource）、Phase 9 的 Analysis Review 与用户确认 Memory、Phase 10 的稳定化（只读完整性审计／一致性备份与恢复校验／导出／数据管理界面），以及 Phase 11 的 UI/UX 整合（统一 Design System、单一 Workspace 上下文、层标识与认知标识、状态矩阵、页面信息层级重排）。事实层仍是十一张正式业务表。旧工作区 Phase 1 指引由用户明确授权的后续阶段请求覆盖。
+Phase 1 Qt 骨架、Phase 2 数据库、Phase 3 Workspace／Person／Media、Phase 4 Relationship／RelationshipHistory、Phase 5 Event／EventParticipant、Phase 6 Evidence／EvidenceMedia、Phase 7 投影层（Unified Search／Timeline／Relationship Graph／Dashboard）、Phase 8 分析层（LLM Provider／ContextBuilder／AnalysisRun／AnalysisSource）、Phase 9 的 Analysis Review 与用户确认 Memory、Phase 10 的稳定化（只读完整性审计／一致性备份与恢复校验／导出／数据管理界面）、Phase 11 的 UI/UX 整合、Phase 12 的人物调查工作台、Phase 13 的分析质量与评估（结构化结果契约、来源曝光与引用验证、运行遥测、模型评估），以及 Phase 14.0 的 ChangeLog 设计与 Phase 14.1 的 ChangeLog 持久化基础（append-only 操作审计表）。事实层仍是十一张正式业务表；ChangeLog 不属于事实层，也不是状态 store。旧工作区 Phase 1 指引由用户明确授权的后续阶段请求覆盖。
 
 ```text
 UI（Domain Entity / DTO / Service）
@@ -63,6 +63,7 @@ ApplicationServices 尾部可选 EventService 保持既有调用兼容。Events 
 投影层：Search(FTS5), Timeline, Graph, Dashboard   ← 全部可重算，不是 Source of Truth
 分析层：AnalysisRun, AnalysisSource               ← 只读事实，输出永不回写事实
 记忆层：Memory                                    ← 只有用户明确确认才会存在
+变更审计层：ChangeLog                             ← 追加式操作审计，不是状态 store
 ```
 
 投影只能从事实层重新计算：Timeline／Graph／Dashboard 不落表，Search 只落一个可随时丢弃重建的索引；任何投影被清空都不会丢事实，`rebuild_index()` 或下一次查询即可恢复。事实写入与搜索投影更新在同一个 Service 事务内完成。
@@ -70,6 +71,17 @@ ApplicationServices 尾部可选 EventService 保持既有调用兼容。Events 
 分析层同样不写事实：ContextBuilder 只读事实层，把"真正发给模型的文本"存进 `AnalysisRun.context_snapshot`，来源对象记入四张 `analysis_*_source` 关联表。**所有模型调用都必须由用户点击触发**；Provider 失败只产生 FAILED 运行，绝不改动事实。
 
 记忆层是"用户确认过的长期语义"：Analysis Review → 用户编辑文本 → 明确确认才创建（也可手工创建）。它既不修改事实，也不会被自动喂给分析——`include_memories` 默认关闭，开启后上下文快照会记录实际使用了哪些记忆。
+
+## 变更审计层（Phase 14）
+
+Phase 14 采用**单表 append-only ChangeLog + 逻辑 Revision**：不建独立 Revision 表，不做 Event Sourcing，不复制整套数据库。设计契约见 [Phase 14 设计](<phase14-design.md>)。
+
+- **一张表**：`change_log` 记录一次真实业务写操作（`entity_type/entity_id/action/operation_id/revision_no` + 白名单 canonical JSON 前后快照 + `recorded_at`）。Revision 是按实体读取的逻辑视图。
+- **归属**：只有 `workspace_id` 是真实外键；多态实体引用由 Writer 校验与完整性审计兜底（SQLite 无法用一个外键指向多张表），如实保留该限制。
+- **不可变性**：Repository 只有 append/read；ORM 守卫拒绝 update/delete；管理员 raw SQL 仍可绕过，不宣称触发器级保护。
+- **快照**：白名单字段（`app/services/change_serialization.py`），排除系统时间、Evidence 原始内容、媒体二进制与内部路径；`payload_version` 管理格式演进。
+- **14.1 状态**：持久化基础已完成（Domain／迁移 0009／Repository／Serializer／只读查询 Service／测试）；**尚未接入业务 Service（14.2）、没有历史 UI（14.3）、没有恢复（14.4）**，因此当前应用运行不会产生 ChangeLog 行。
+- **历史边界**：Phase 14 之前创建的数据没有历史记录，不根据 `created_at/updated_at` 伪造；备份天然包含该表，默认导出不含。
 
 ## 数据管理（Phase 10）
 
@@ -134,7 +146,7 @@ Phase 12 把既有能力组织成人物调查工作台（Person Investigation Co
 
 ## 未实现与后续决策
 
-- Sync／ChangeLog／Revision／MemoryRevision；这些表与功能不存在。
+- Sync／MemoryRevision；这些表与功能不存在。ChangeLog 仅有持久化基础（Phase 14.1，不产生行）；Revision 历史 UI（14.3）与受控恢复（14.4）尚未实现。
 - Vision／OCR、RAG／向量库、embedding、记忆相似度搜索、自动记忆整合。
 - 聊天导入、自动事件提取、自动摘要、自动关系判断、自动 Memory。
 - 由分析结果修改事实的流程（Analysis → 用户复核 → 显式 Service 操作）；本阶段不实现。

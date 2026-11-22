@@ -383,6 +383,7 @@ APPEND_HISTORY）。
 - `before_snapshot` / `after_snapshot`：**白名单字段的完整状态对象**（不是全实体复制，
   也不是只存 diff），便于直接回答"该版本时这些字段是什么"；
 - CREATE/IMPORT：`before=null`，`after=完整快照`；
+- APPEND_HISTORY：新领域历史行也是"此前不存在"，`before=null`、`after=完整历史快照`；
 - UPDATE：`before` 与 `after` 都是完整白名单状态，`changed_fields` 精确列出不同字段；
 - ARCHIVE/RESTORE：`before/after` 为生命周期动作前后的完整业务快照（不含系统时间），
   action 表达生命周期；
@@ -841,3 +842,30 @@ Writer 记录 `REVERT`。
 每阶段结束：跑全量回归 → 更新 `docs/phase14-design.md`（如设计需修订）与
 `docs/phase14-verification.md` → 报告实际 collected/passed/failed/skipped/exit code →
 停止等待指令。**本设计未获用户审核前不得进入 14.1。**
+
+---
+
+## 19. 实施记录（Phase 14.2 — Transactional Change Capture）
+
+- **统一入口**：`app/services/change_capture.py` 的 `ChangeOperationContext` +
+  `ChangeLogWriter`。Writer 只接收调用方的 Session，不 commit、不新建 Session；
+  `record()` 在同事务内校验实体/父引用（按类型查询对应表，允许软删除行）、拒绝跨
+  Workspace、处理 create-like 快照规则、计算 `changed_fields` 与下一 `revision_no`、
+  追加一行；`UPDATE`/`ATTACH_EVENT`/`DETACH_EVENT` 快照无变化时返回 `None`（不造 Revision）。
+- **快照助手**：`app/services/change_snapshots.py` 在调用方事务内加载聚合集合
+  （aliases/images/participants/media）并交给 Serializer。
+- **组合根唯一装配**：`create_application_services()` 创建一个 Writer 并注入
+  Workspace/Person/Media/Relationship/Event/Evidence/Memory 服务；Service 构造函数的
+  `changes=None` 仅用于独立单测/脚本，不改变既有测试行为。`ensure_default()` 是系统
+  引导元数据，不做审计。
+- **聚合边界**：Alias、PersonMedia、EventParticipant、EvidenceMedia 的变化记录为
+  父实体（PERSON/EVENT/EVIDENCE）的快照集合差异；RelationshipHistory 为独立实体，
+  `parent=(RELATIONSHIP, id)`；APPEND_HISTORY 以 `before=null` 记录。
+- **两阶段 Media**：人物带头像创建时，PersonService 生成 operation context，经
+  `MediaService.import_file(..., operation=ctx)` 传入；实际写库的 `_persist` 事务内记录
+  PERSON CREATE + MEDIA IMPORT（同一 operation），不产生重复 PERSON 行。Media 仅在新导入
+  或恢复已删除媒体时记录 IMPORT；人物/证据的附件变化进入父实体快照。
+- **失败原子性**：快照生成或 ChangeLog 写入失败直接抛出 → 业务事务整体回滚；
+  业务校验失败不写审计；只读操作不写。
+- **未变**：无 schema/migration 变化（仍 0009）；未实现历史 UI（14.3）与恢复（14.4）；
+  未回填旧历史；AnalysisRun 仍不进入普通 Revision。

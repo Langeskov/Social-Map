@@ -80,7 +80,8 @@ Phase 14 采用**单表 append-only ChangeLog + 逻辑 Revision**：不建独立
 - **归属**：只有 `workspace_id` 是真实外键；多态实体引用由 Writer 校验与完整性审计兜底（SQLite 无法用一个外键指向多张表），如实保留该限制。
 - **不可变性**：Repository 只有 append/read；ORM 守卫拒绝 update/delete；管理员 raw SQL 仍可绕过，不宣称触发器级保护。
 - **快照**：白名单字段（`app/services/change_serialization.py`），排除系统时间、Evidence 原始内容、媒体二进制与内部路径；`payload_version` 管理格式演进。
-- **14.1 状态**：持久化基础已完成（Domain／迁移 0009／Repository／Serializer／只读查询 Service／测试）；**尚未接入业务 Service（14.2）、没有历史 UI（14.3）、没有恢复（14.4）**，因此当前应用运行不会产生 ChangeLog 行。
+- **14.2 状态**：业务写操作已接入（`create_application_services()` 注入统一 Writer，与业务写入同事务；无变化不记；失败整体回滚）；**没有历史 UI（14.3）、没有恢复（14.4）**。当前应用会为受审计写操作产生 ChangeLog 行，但只能通过后续历史 UI 或 SQL 查看。
+- **捕获方式**：Service 层显式 `ChangeLogWriter`（不是 ORM Hook），由最外层业务方法创建 `ChangeOperationContext` 并透传嵌套调用；Alias、PersonMedia、EventParticipant、EvidenceMedia 的子集合变化记录在父实体快照中，RelationshipHistory 独立成实体并以 parent 关联 Relationship。
 - **历史边界**：Phase 14 之前创建的数据没有历史记录，不根据 `created_at/updated_at` 伪造；备份天然包含该表，默认导出不含。
 
 ## 数据管理（Phase 10）
@@ -146,7 +147,7 @@ Phase 12 把既有能力组织成人物调查工作台（Person Investigation Co
 
 ## 未实现与后续决策
 
-- Sync／MemoryRevision；这些表与功能不存在。ChangeLog 仅有持久化基础（Phase 14.1，不产生行）；Revision 历史 UI（14.3）与受控恢复（14.4）尚未实现。
+- Sync／MemoryRevision；这些表与功能不存在。ChangeLog 已持久化并接入业务写操作（Phase 14.2）；Revision 历史 UI（14.3）与受控恢复（14.4）尚未实现。
 - Vision／OCR、RAG／向量库、embedding、记忆相似度搜索、自动记忆整合。
 - 聊天导入、自动事件提取、自动摘要、自动关系判断、自动 Memory。
 - 由分析结果修改事实的流程（Analysis → 用户复核 → 显式 Service 操作）；本阶段不实现。

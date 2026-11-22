@@ -219,6 +219,102 @@ append-only ORM 模型与守卫、Repository 接口与 SQL adapter、白名单�
 
 ---
 
+## Phase 14.2 — Transactional Change Capture
+
+### 1. 本阶段结论
+
+**完成**：在 14.0 审计矩阵与 14.1 持久化基础上，实现统一捕获入口
+（`ChangeOperationContext` + `ChangeLogWriter`），并将 ChangeLog 接入 Person／Alias（聚合快照）／
+Media／Relationship／RelationshipHistory／Event／Participant（聚合快照）／Evidence／
+EvidenceMedia（聚合快照）／Workspace／Memory 的真实业务 Service。业务写入与审计写入同事务，
+成功一起提交、失败一起回滚；无实际变化的更新不产生虚假 Revision。**未实现历史 UI 与恢复。**
+
+### 2. 实际修改内容
+
+- **Application/Service**：新增 `app/services/change_capture.py`（operation context、writer、
+  实体/父引用校验、no-op 规则）、`app/services/change_snapshots.py`（聚合快照助手）；
+  `application.py` 组合根创建唯一 Writer 并注入 7 个业务 Service。
+- **接入点**：
+  - Workspace：create/update/archive（`ensure_default` 系统引导不审计）。
+  - Person：create（含带头像的单 operation 两阶段）、update、archive、alias 增删、
+    avatar/gallery 关联、媒体引用解除。
+  - Media：import（仅新建或恢复已删除媒体）、archive；人物/证据的附件变化进入父实体快照。
+  - Relationship：create、archive、restore；add_history → RELATIONSHIP_HISTORY
+    APPEND_HISTORY（parent=RELATIONSHIP）；Event↔History 关联 → ATTACH/DETACH_EVENT。
+  - Event：create/update/archive/restore；participant 增删与角色/备注变化进入 EVENT 快照。
+  - Evidence：create、metadata 更新、archive/restore、附件增删。
+  - Memory：手工/来自分析的 create、update、archive、restore。
+- **Domain 契约微调**：`APPEND_HISTORY` 归入 create-like（`before=null`），与"新领域历史行
+  此前不存在"一致；更新 14.1 相关测试数据。
+- **未改**：无 schema/migration（仍 `0009_change_log`）；无 UI；无恢复；未回填旧历史；
+  AnalysisRun 不进入普通 Revision。
+
+### 3. 关键设计决定（实际落地）
+
+1. **Writer 不拥有事务**：只使用调用方 `write_operation` 的 Session；不 commit、不新建 Session。
+2. **显式 operation context**：最外层 Service 方法创建，嵌套 Media 导入透传；同一 operation
+   的所有行共享 `operation_id` 与 `recorded_at`。
+3. **聚合快照**：Alias/PersonMedia/EventParticipant/EvidenceMedia 不单独建实体，作为父实体
+   快照集合；RelationshipHistory 独立成实体并以 parent 关联 RELATIONSHIP。
+4. **no-op 规则**：UPDATE/ATTACH/DETACH 前后快照一致 → 不写行；生命周期动作与创建始终记录。
+5. **组合根注入**：`create_application_services()` 是唯一生产装配点；Service 的
+   `changes=None` 默认关闭捕获，保证既有直接构造 Service 的测试/脚本行为不变。
+6. **两阶段 Media**：文件阶段不写审计；只有实际提交业务行的 `_persist` 事务写审计；
+   人物创建带头像时由 PersonService 透传 operation，捕获 PERSON CREATE + MEDIA IMPORT 一次。
+7. **审计失败即回滚**：Writer/Serializer 异常向外传播，业务事务一并回滚（有测试）。
+
+### 4. 数据库变化
+
+**无**：未新增 migration、未改 schema；仍为 `0009_change_log`。14.2 仅开始产生审计行。
+
+### 5. 测试运行命令与结果
+
+```powershell
+& .\.venv\Scripts\python.exe -s -m pytest -q -ra
+```
+
+- **1712 collected / 1707 passed / 5 environment-skipped / 0 failed（退出码 0，8:55）**
+- 增量核对：1686（Phase 14.1 完成后）+ 26（Phase 14.2 新增：change capture 14 +
+  transactions 12）= 1712；既有测试无删除/弱化，5 项 Windows symlink skip 保持原义。
+
+新增测试：
+
+- `tests/services/test_change_capture.py`（14）：writer 契约（operation context、跨 Workspace/
+  不存在实体/父引用拒绝、no-op、生命周期、APPEND_HISTORY 快照规则、session/context 必填）；
+  Person/Alias/Media 关联、Event/Participant、Relationship/History、Evidence/附件、Memory、
+  Workspace、Media 的实体捕获；带头像创建为单一 operation 且无重复 PERSON 行。
+- `tests/services/test_change_capture_transactions.py`（12）：业务+审计同提交；快照生成失败、
+  ChangeLog 写入失败、Event/Participant 中途失败均整体回滚；校验失败无审计；no-op 不增版本；
+  revision 按实体递增；带头像 operation 分组；只读操作不写；第二 Workspace 隔离；组合根共享
+  Writer；无 Writer 的 Service 不捕获。
+- 14.1 测试按 `APPEND_HISTORY` 新语义更新（before=null），未弱化断言。
+
+### 6. 已知问题和风险
+
+1. 14.2 不提供任何读取 UI；审计行只能通过 SQL/后续 14.3 查看（预期）。
+2. `revision_no` 依赖事务内 MAX+1 + 唯一约束；单用户可接受，并发冲突会整体回滚。
+3. 多态引用孤儿仅靠 14.4 完整性审计（数据库无跨表外键）。
+4. 归档/恢复等生命周期动作在快照无字段差异时仍记录一行（`changed_fields=[]`），
+   语义由 action 表达。
+5. 既有测试大多直接构造 Service（无 Writer），因此不覆盖捕获；捕获路径由 14.2 测试与
+   组合根测试覆盖；生产装配点唯一。
+
+### 7. 下一阶段（14.3）前置条件
+
+- ✅ 业务写操作已产生可查询的 ChangeLog；operation 分组、版本递增、Workspace 隔离可用。
+- ✅ 原子提交/回滚、no-op、嵌套两阶段均有测试。
+- ⏳ 14.3 需要：历史查询/分页、Diff（字段中文标签、长文本折叠、未知版本降级）、
+  操作组展示、旧数据"无历史"提示、Person/Event/Evidence/Relationship/Memory 入口。
+- 14.3 禁止：恢复按钮、修改历史、伪造旧历史。
+
+### 8. Git 状态
+
+- 分支：`phase-14-revision-changelog`
+- 本阶段提交：`7030e9f`（代码 + 测试）；文档提交紧随本记录
+- 是否推送远端：**否**
+
+---
+
 ## Phase 14.3 — Revision History & Diff Viewer
 
 （待实施）
@@ -237,3 +333,4 @@ append-only ORM 模型与守卫、Repository 接口与 SQL adapter、白名单�
 |---|---|---|---|---|---|
 | 14.0（设计，无代码改动） | 1660 | 1655 | 0 | 5 | 0 |
 | 14.1（ChangeLog 持久化基础） | 1686 | 1681 | 0 | 5 | 0 |
+| 14.2（业务事务接入） | 1712 | 1707 | 0 | 5 | 0 |

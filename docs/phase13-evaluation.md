@@ -59,7 +59,7 @@ tests/services/test_token_estimate.py     Token 估算边界（6.5 复核配套�
 | 字段 | 值 | 含义 |
 |---|---|---|
 | `schema_version` | `1` | 数据集/scenario JSON 结构版本；加载器不识别的版本直接拒绝 |
-| `dataset_version` | `1.1` | 当前合成数据集内容版本；scenario 必须声明一致的值 |
+| `dataset_version` | `1.2` | 当前合成数据集内容版本；scenario 必须声明一致的值 |
 
 任何结构性修改都必须递增 `schema_version`（破坏性）或 `dataset_version`（内容），
 并在本文件登记。
@@ -135,6 +135,21 @@ tests/services/test_token_estimate.py     Token 估算边界（6.5 复核配套�
 已进入 `source_ids()`，数据集相应把次要人物重新纳入 `required_sources`（同时保留
 `required_text` 文本断言）。
 
+`model_answers`（可选，13.4 起；dataset_version 1.2）：
+
+```json
+"model_answers": [
+  {"model_label": "alpha", "content": "<固定模型回答>", "note": "…"},
+  {"model_label": "beta", "content": "<另一固定回答>", "note": "…"}
+]
+```
+
+固定合成回答用于**离线模型评估**：每个 label 从同一份物化上下文与 Prompt 出发，
+经真实的 parser / ReferenceVerifier / 规则评估器得到指标，从而在没有 Provider 调用、
+没有网络的前提下比较两种回答的结构与引用合法性。`content` 同样支持 `<<TYPE:key>>`
+占位符，加载器校验 label 唯一、占位符可达；当前 SCENARIO_A/D/G 提供 `alpha`（合规）
+与 `beta`（噪声）两套答案。
+
 ### 3.5 参考答案防泄漏原则（硬性）
 
 `expected_facts` / `forbidden_claims` / `expected_uncertainties` 的文本是**参考答案**，
@@ -153,7 +168,8 @@ tests/services/test_token_estimate.py     Token 估算边界（6.5 复核配套�
 （target_type / target_key / analysis_type / as_of / time_scope / include 开关 /
 selected_* / custom_start / custom_end / max_context_tokens）、`expected_facts`、
 `required_sources`、`forbidden_claims`、`expected_uncertainties`、`human_review`、
-`evaluation_dimensions`、`expected_context`、`notes`。
+`evaluation_dimensions`、`expected_context`、`notes`；可选 `sample_output`（13.2）、
+`model_answers`（13.4）。
 
 `as_of` 固定为带时区的显式时间（本数据集为 `2026-06-15T12:00:00+00:00`），
 保证时间过滤可复现；所有夹具时间都是绝对 ISO 时间。
@@ -199,6 +215,10 @@ selected_* / custom_start / custom_end / max_context_tokens）、`expected_facts
 | CONTEXT_EXPECTATIONS | Deterministic | expected_context 逐条断言 | 否 | 否 | **是** |
 | EXPOSURE_MANIFEST | Deterministic | Manifest ↔ source_ids / 持久化来源 / 上下文标记一致 | 否 | 否 | **是（13.1 起）** |
 | REFERENCE_GROUNDING | Deterministic | 固定样例回答的引用状态与"缺引用"计数对照声明 | 是 | 否 | **是（13.2 起）** |
+| GROUNDING | Deterministic proxy / Human | FACT 条目是否都带合法引用（结构性代理；语义支持人工） | 是 | 是 | **是（13.4 模型评估）** |
+| LATENCY | Deterministic (observed) | 每次调用耗时，按模型聚合平均/中位数（无通过阈值） | 否 | 否 | **是（13.4 在线评估）** |
+| TOKEN_USAGE | Deterministic (observed) | Provider usage 可用性与 prompt/completion/total（不补 0、不推算） | 否 | 否 | **是（13.4 在线评估）** |
+| FAILURE_RATE | Deterministic | 失败请求数 / 总请求数；失败样本必须保留 | 否 | 否 | **是（13.4 模型评估）** |
 
 N/A 行必须带原因（如"结果解析器在 Phase 13.1 提供"）。**禁止**把人工评价项
 伪装成程序已验证；**禁止**用 0 分代替 N/A。
@@ -382,3 +402,98 @@ Phase 13.3 的运行遥测哈希（Prompt/上下文/请求）用于**识别分�
 | 13.1 | 结构化结果契约 + 解析器；Context Entity Manifest 联动（标记 / source_ids / 持久化 / 数据集 required_sources）；`EXPOSURE_MANIFEST` 启用；可复现性改为掩码后逐字节比较 |
 | 13.2 | 引用验证器（9 种状态，Manifest + AnalysisSource 联合校验）；候选引用状态化（移除 accepted 布尔）；结果对话框逐条验证；数据集 1.1 + 样例输出；`REFERENCE_GROUNDING` 启用 |
 | 13.3 | 版本化运行遥测（Prompt/上下文/请求哈希、返回模型、usage、finish reason、重试与耗时）写入 scope JSON（无迁移）；响应元数据归一化；截断/内容过滤显式警告；导出随运行元数据带出 |
+| 13.4 | 模型评估与对比：固定答案离线对比 + 显式在线调用；公平比较固定项；自动/观测/人工三维指标；失败样本保留；`evaluation-runs/<run-id>/` 机器+人类可读报告；无排行榜；UI 不嵌入主界面 |
+
+---
+
+## 13. 模型评估与对比（Phase 13.4）
+
+**目的**：让不同的 Provider / 模型在同一批任务上可比较，回答"它是否区分事实与推断、
+回答是否有合法来源、是否识别不确定性、上下文稀疏时是否克制、长上下文下是否稳定"。
+**不做**：不判断"哪个模型最聪明"，不输出单一综合分，不建立模型排行榜，不把 LLM Judge
+当裁判。
+
+### 13.1 两种运行模式（10.1 / 10.2）
+
+| 模式 | 命令 | 是否联网 | 说明 |
+|---|---|---|---|
+| 数据集离线运行 | `python -m app.evaluation --dataset <dir>` | 否 | 13.0 起的上下文/契约评估（不变） |
+| 离线模型对比 | `python -m app.evaluation --dataset <dir> --models alpha,beta` | 否 | 复用 `model_answers` 固定答案，经真实 parser / ReferenceVerifier / 规则评估器比较 |
+| 在线模型评估 | `python -m app.evaluation --dataset <dir> --online --provider <name> --confirm-online` | 是 | 只调用**一个**显式选择的已配置 Provider/模型；双重门禁（`--online` + `--confirm-online`），缺 `--provider` 或未确认直接拒绝 |
+
+- 在线评估的模型必须与已配置 Provider 的模型一致（可用 `--model` 显式声明；不一致直接
+  报错），避免把不同参数或不同模型当成同一次比较。
+- 在线评估也**只使用合成数据集夹具**（临时目录），不读取生产 Workspace 真人数据；
+  不扫描、不自动调用其他 Provider；不会写入生产 `AnalysisRun` / 事实 / Memory。
+- pytest 永不触网：在线路径测试全部注入 `FakeTransport`。
+
+### 13.2 公平比较的固定项（10.3）
+
+同一个评估运行（run）内，同一 Scenario 的所有模型共享：Dataset id/version/digest、
+Scenario version、ContextSnapshot、Prompt Template 版本与哈希、输出契约版本、请求
+参数（temperature/timeout、include 开关、as_of、time_scope）。manifest.json 与每个
+结果行都记录这些版本；`request.context_snapshot_hash` 与 `prompt_hash` 对同 Scenario
+的不同模型标签必须一致（测试强制）。**跨运行比较前必须核对 manifest**，版本不同不得
+声称可比。
+
+失败请求必须保留：`status=FAILED`、`error_class`、`timed_out`、`attempts`（网关
+成功时记录真实尝试数；异常路径无法得知时如实记为未知，不猜）、以及失败样本列表。
+提前结束（`finish_reason`）与 usage 缺失同样如实记录：缺失 = `available=False`，
+绝不补 0。
+
+### 13.3 评估维度（10.4）
+
+自动（确定性，可复现）：
+
+- `PARSE_VALIDITY`、`REQUIRED_SECTIONS`：JSON 契约与四小节存在性；
+- `CITATION_VALIDITY`、`CROSS_WORKSPACE_LEAKAGE`：引用状态合法性 / 跨 Workspace 引用；
+- `FACT_COVERAGE`：参考答案事实是否被合法引用覆盖（reference-based）；
+- `GROUNDING`：FACT 条目是否都带合法引用——**结构性代理**，语义支持仍属人工。
+
+观测（只报告，不设通过阈值）：`LATENCY`（平均/中位数）、`TOKEN_USAGE`（Provider 实际
+usage 或 unavailable）；聚合：`FAILURE_RATE`。
+
+人工复核（N/A + 复核清单，禁止伪装成自动通过）：`UNSUPPORTED_CLAIMS`、
+`UNCERTAINTY_HANDLING`、`EPISTEMIC_SEPARATION`、`COMPLETENESS`、`ROBUSTNESS`。
+
+### 13.4 报告产物（10.6）
+
+输出目录 `evaluation-runs/<run-id>/`（本地目录，`.gitignore` 排除真实运行）：
+
+| 文件 | 内容 |
+|---|---|
+| `manifest.json` | 模式、Dataset 版本/digest、Prompt 版本/哈希、输出契约版本、模型清单、Scenario 列表、成功/失败计数、易变字段、局限 |
+| `raw-results.jsonl` | 每行一次（Scenario × 模型）：请求身份哈希、结构化 outcome（status/error/timed_out/attempts/latency/returned_model/finish/usage）、原始回答、引用状态、指标与原因 |
+| `metrics.json` | `aggregates`（每模型计数/失败率/延迟/usage/finish 分布/指标计数）与 `by_scenario_model` |
+| `report.md` | 人类可读：版本与模型、执行时间、成功/失败、指标表、跨模型差异（仅状态差异，不排名）、失败样本、人工复核清单、局限 |
+
+报告明确声明"不是排行榜、无单一总分、自动指标不证明语义"。
+
+### 13.5 人工复核与 Judge 边界（10.5）
+
+报告列出数据集 `human_review` 清单供人工填写；人工结论以独立记录保存，**不写回事实层、
+不自动决定 Memory**。LLM Judge 仅可作为实验记录（本阶段不实现 Judge 流程），不得作为
+最终裁判；多个模型一致 ≠ 事实为真。
+
+### 13.6 UI 决策（10.7）
+
+评估优先用 CLI + 本地报告文件，**不嵌入主界面**：现有 AnalysisPage 已覆盖单次运行的
+原始输出、解析状态、引用验证与 13.3 遥测；跨模型比较是低频、长表格的审计工作，放入
+主界面会破坏 V1 主流程的简洁性。若未来确需 UI，应做独立 Evaluation Viewer（选择 run →
+查看 manifest/原始结果 → 同 Scenario 对比 → 失败原因 → 人工复核状态 → 导出报告），
+其比较视图必须同时显示模型、Prompt 版本与 Dataset 版本，本阶段不实现。
+
+### 13.7 组件与边界
+
+```text
+app/evaluation/
+    models.py             + ModelAnswerSpec / model_answers / 4 个模型评估指标
+    dataset.py            model_answers 解析与占位符/唯一性校验（fail-closed）
+    model_evaluation.py   规则评估器 + 离线固定答案 Runner + 显式在线 Runner + 聚合
+    report.py             write_model_report（manifest/raw-results.jsonl/metrics.json/report.md）
+    __main__.py           --models / --online --provider --confirm-online 门禁
+tests/evaluation/dataset/ dataset_version 1.2；A/D/G 增加 alpha/beta 固定答案
+```
+
+边界：评估层只读 Domain/Service；在线 Runner 只通过现有 `LLMGateway` 调用**显式指定**
+的 Provider；不写事实、不写 Memory、不写生产 AnalysisRun；不新增依赖；不改 schema。

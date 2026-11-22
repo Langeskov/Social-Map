@@ -602,6 +602,133 @@ AnalysisRun + AnalysisSource + Context Entity Manifest 共同判定，且失败�
 
 ---
 
+## Phase 13.4 — Model Evaluation & Review
+
+**目标**：把不同 Provider/模型的同批任务对比做成统一评估流程——不判断"最聪明"，而是评估
+事实边界、引用、不确定性、稀疏上下文下的克制与长上下文稳定性；输出机器可读 + 人类可读
+报告，人工复核与自动评估分离。
+
+### 完成内容（对应 10.x）
+
+1. **10.1 离线评估为基础模式**：`model_answers` 固定合成答案经真实物化上下文、Prompt、
+   Parser、ReferenceVerifier 与规则评估器比较；无 Provider、无网络。
+2. **10.2 在线评估只能显式启动**：`python -m app.evaluation --online --provider <name>
+   --confirm-online` 双重门禁；缺 provider/确认直接拒绝；每次只调用一个显式模型；不使用
+   生产 Workspace 真人数据（只用合成夹具）。
+3. **10.3 公平比较固定项**：同 run 内同 Scenario 共享 Dataset 版本/digest、Scenario
+   版本、ContextSnapshot、Prompt 版本/哈希、输出契约、请求参数；结果行与 manifest 记录
+   版本；失败请求保留状态（error_class / timed_out / attempts / 提前结束）。
+4. **10.4 维度**：自动（PARSE_VALIDITY / REQUIRED_SECTIONS / CITATION_VALIDITY /
+   CROSS_WORKSPACE_LEAKAGE / FACT_COVERAGE / GROUNDING 代理）、观测（LATENCY /
+   TOKEN_USAGE / FAILURE_RATE）、人工（UNSUPPORTED_CLAIMS / UNCERTAINTY_HANDLING /
+   EPISTEMIC_SEPARATION / COMPLETENESS / ROBUSTNESS，N/A + 复核清单）。
+5. **10.5 不以 LLM Judge 裁决**：本阶段不实现 Judge；人工结论独立保存，不写事实、不自动
+   决定 Memory；模型一致 ≠ 事实为真。
+6. **10.6 报告**：`evaluation-runs/<run-id>/{manifest.json, raw-results.jsonl,
+   metrics.json, report.md}`；含版本、模型、参数、执行时间、成功/失败计数、分指标结果、
+   失败样本、引用错误、人工复核清单、跨模型差异、局限；明确"不是排行榜"。
+7. **10.7 UI 决策**：不嵌入主界面；现有 AnalysisPage（13.1/13.2/13.3）覆盖单次运行，
+   跨模型比较走本地报告文件；独立 Evaluation Viewer 延后并记录设计要点。
+
+### 修改文件
+
+- 新增：`app/evaluation/model_evaluation.py`、`tests/evaluation/test_model_evaluation.py`
+- 修改：`app/evaluation/{models,dataset,report,__main__,__init__}.py`、
+  `app/domain/entities/analysis_result.py`（`sections_present` 只读字段）、
+  `app/services/analysis_result_parser.py`（填充存在性）、
+  `tests/evaluation/test_evaluation_contract.py`（注册表 22 项）、
+  `tests/services/test_analysis_result_parser.py`（+2）、
+  数据集 1.2（A/D/G 增加 alpha/beta 固定答案；18 个 JSON 版本递增）
+- 删除：无
+
+### 数据库变更
+
+**无迁移、无 schema 变化、无新增依赖**（评估只在临时夹具库中运行，不写生产
+AnalysisRun/事实/Memory）。`AnalysisResult.sections_present` 是纯内存只读字段，默认空
+元组，历史 JSON 解析结果不受影响。
+
+### 关键设计决策
+
+1. **数据集版本 1.2**：新增 `model_answers` 属内容变更（非结构），故递增
+   `dataset_version` 而保持 `schema_version=1`；加载器对 label 唯一性、占位符可达性、
+   占位符仅在 model_answers/sample_output 出现做 fail-closed 校验。
+2. **`sections_present` 而非语义判断**：REQUIRED_SECTIONS 需要"四节是否存在"的确定性
+   依据；解析器记录 JSON 中出现的 list 键（legacy Markdown 记录非空小节），评估器据此
+   判定，不猜测内容语义。
+3. **固定答案对比不调用 Provider**：offline 模式下每个 label 只是不同回答内容，共享
+   同一 snapshot/prompt；这样"公平比较固定项"由构造保证，且完全离线可复现。
+4. **在线评估的失败如实保留**：网关成功时记录真实 attempts；异常路径无法得知重试次数
+   时记为未知而不是猜；超时单独标记；usage 缺失 = unavailable，不补 0。
+5. **GROUNDING 明确标注为结构性代理**：只检查 FACT 条目是否带合法引用；语义是否被支持
+   写入人工复核项，不伪装成自动通过。
+6. **报告不做排行榜**：分指标展示 + 差异列表；无综合分；局限章节显式声明不可作排行榜。
+
+### 新增测试（19 项 + 契约/解析器更新）
+
+- `tests/evaluation/test_model_evaluation.py`（19）：
+  - 数据集：两标签固定答案、重复 label 拒绝、未知占位符拒绝；
+  - 离线：覆盖 3 Scenario × 2 标签、合规/噪声指标差异、公平性元数据、
+    答案占位符解析与保留、确定性与零网络（socket 陷阱）、人工指标 N/A、聚合观测；
+  - 在线：必须匹配已配置模型、成功元数据与指标、失败保留（401）、超时标记（重试 2 次）、
+    提前结束 finish=LENGTH、只调用一个显式 Provider；
+  - CLI：`--models` 离线零网络、`--online` 缺确认/缺 provider 拒绝（exit 2）、
+    注入 Gateway 在线运行；
+  - 报告：manifest/metrics/raw-results/report 内容与"非排行榜"声明。
+- `tests/evaluation/test_evaluation_contract.py`：注册表 18 → 22（新增 4 维度）。
+- `tests/services/test_analysis_result_parser.py`：`sections_present` JSON/不可解析文本。
+
+### 测试运行命令与结果
+
+子集：
+
+```powershell
+& .\.venv\Scripts\python.exe -s -m pytest tests/evaluation tests/services -q -ra
+```
+
+- `tests/evaluation`：57 passed（10.3s）
+- `tests/services`：441 passed（1:12）
+
+全量回归：
+
+- **1651 collected / 1646 passed / 5 environment-skipped / 0 failed（退出码 0，8:10）**
+- 增量核对：1630（13.3 完成后）+ 21（13.4 新增：模型评估 19 + 解析器 sections_present
+  2）= 1651 ✓；5 项 Windows symlink 环境 Skip 保持原义。
+
+### Git 提交
+
+| Commit | 说明 |
+|---|---|
+| `0d4580b` | feat(evaluation)：模型评估与对比（固定答案离线 + 显式在线门禁 + 报告，含测试） |
+| （本文件提交） | docs(phase13)：记录 Phase 13.4 |
+
+### 与原始计划不同 / 未完成项
+
+1. **未实现独立 Evaluation Viewer**：10.7 为"如确实需要"；本阶段评估以 CLI + 报告文件
+   为界面，主界面保持简洁。设计要点已记录于 `docs/phase13-evaluation.md §13.6`，可作为
+   后续独立阶段（不在 13.4 强制范围）。
+2. **未实现 LLM Judge 流程**：10.5 禁止以 Judge 为裁判；Judge 属实验性，本阶段只记录
+   边界，不实现。
+3. **在线评估不写 AnalysisRun**：评估是审计行为，不产生生产分析历史；原始结果只存入
+   `evaluation-runs/`（本地、gitignore）。
+4. **未新增依赖**：报告与聚合均为标准库实现。
+
+### 已知局限 / 结转
+
+- 自动指标只覆盖结构与引用合法性；语义支持、矛盾处理、不确定性质量仍为人工复核。
+- 离线固定答案没有真实 latency/usage；在线每个 run 只测一个模型，跨模型对比需要多个
+  在线 run，比较前必须核对 manifest 版本一致性（报告已声明）。
+- `attempts` 在异常路径无法准确取得（网关内部重试），报告如实标记未知而非估算。
+- `evaluation-runs/` 产物含原始模型回答（合成数据），仍不应提交仓库；已由 `.gitignore`
+  排除。
+
+### Phase 13 收尾说明
+
+Phase 13 的五个子阶段（13.0–13.4）至此完成。后续若继续扩展，建议（需用户明确指派）：
+把人工复核结果采集与比对接入流程、独立 Evaluation Viewer、Judge 实验记录，以及对
+"评估结论不进入事实层"的持续审计。
+
+---
+
 ## 最终回归（每子阶段后更新）
 
 | 阶段 | collected | passed | skipped | failed | 退出码 |
@@ -613,3 +740,4 @@ AnalysisRun + AnalysisSource + Context Entity Manifest 共同判定，且失败�
 | Phase 13.1 完成后 | 1583 | 1578 | 5 | 0 | 0 |
 | Phase 13.2 完成后 | 1598 | 1593 | 5 | 0 | 0 |
 | Phase 13.3 完成后 | 1630 | 1625 | 5 | 0 | 0 |
+| Phase 13.4 完成后 | 1651 | 1646 | 5 | 0 | 0 |

@@ -130,7 +130,7 @@ class EventService:
                                      after=event_state(repositories, workspace_id, saved))
             return saved
 
-    def update_event(self, workspace_id, id, **changes):
+    def update_event(self, workspace_id, id, *, operation=None, **changes):
         if set(changes) - (self.EDITABLE | {"participants"}):
             raise DomainError("不能修改 Event 身份、Workspace 或生命周期字段。")
         supplied = "participants" in changes
@@ -159,7 +159,8 @@ class EventService:
                         repositories.participants.add(EventParticipant(workspace_id=workspace_id, event_id=id,
                             person_id=item.person_id, role=item.role, note=item.note, created_at=entity.updated_at))
             if self._changes is not None:
-                context = self._changes.begin(workspace_id)
+                context = (operation if operation is not None
+                           else self._changes.begin(workspace_id))
                 self._changes.record(session, context, entity_type="EVENT",
                                      action="UPDATE", entity=saved, before=before,
                                      after=event_state(repositories, workspace_id, saved))

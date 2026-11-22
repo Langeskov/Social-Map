@@ -185,6 +185,91 @@ def test_panel_entry_points_expose_read_only_history(env, qt_app):
     qt_app.processEvents()
 
 
+def test_revert_button_is_enabled_only_for_a_valid_target(env, qt_app):
+    person = env.services.people.create(env.ws.id, "Alice", occupation="Engineer")
+    env.services.people.update(env.ws.id, person.id, occupation="Designer")
+    dialog = dialog_for(env, "PERSON", person.id)
+    qt_app.processEvents()
+    try:
+        dialog.list.setCurrentRow(0)     # newest UPDATE: target equals current
+        qt_app.processEvents()
+        assert dialog.revert_button.isEnabled() is False
+        dialog.list.setCurrentRow(1)     # CREATE revision: revert to Engineer
+        qt_app.processEvents()
+        assert dialog.revert_button.isEnabled() is True
+    finally:
+        dialog.close()
+
+    alice = env.services.people.create(env.ws.id, "A")
+    bob = env.services.people.create(env.ws.id, "B")
+    relationship = env.services.relationships.create(env.ws.id, alice.id, bob.id, "COLLEAGUE")
+    relationship_dialog = dialog_for(env, "RELATIONSHIP", relationship.id)
+    qt_app.processEvents()
+    try:
+        relationship_dialog.list.setCurrentRow(0)
+        qt_app.processEvents()
+        assert relationship_dialog.revert_button.isEnabled() is False
+        assert "不支持" in relationship_dialog.revert_button.toolTip()
+    finally:
+        relationship_dialog.close()
+
+
+def test_archived_person_blocks_revert(env, qt_app):
+    person = env.services.people.create(env.ws.id, "Alice", occupation="Engineer")
+    env.services.people.update(env.ws.id, person.id, occupation="Designer")
+    env.services.people.soft_delete(env.ws.id, person.id)
+    dialog = dialog_for(env, "PERSON", person.id)
+    qt_app.processEvents()
+    try:
+        dialog.list.setCurrentRow(2)     # CREATE row (ARCHIVE/UPDATE are newer)
+        qt_app.processEvents()
+        assert dialog.revert_button.isEnabled() is False
+        assert "归档" in dialog.revert_button.toolTip()
+    finally:
+        dialog.close()
+
+
+def test_revert_executes_as_a_new_revision(env, qt_app, monkeypatch):
+    import app.ui.revision_history as module
+    from PySide6.QtWidgets import QDialog
+
+    person = env.services.people.create(env.ws.id, "Alice", occupation="Engineer")
+    env.services.people.update(env.ws.id, person.id, occupation="Designer")
+    dialog = dialog_for(env, "PERSON", person.id)
+    qt_app.processEvents()
+    try:
+        dialog.list.setCurrentRow(1)     # revert to the CREATE snapshot
+        qt_app.processEvents()
+        monkeypatch.setattr(module, "RevertPreviewDialog",
+                            lambda preview, parent=None: type(
+                                "FakeDialog", (), {"exec": lambda self: QDialog.DialogCode.Accepted})())
+        result = dialog._start_revert()
+        qt_app.processEvents()
+        assert result is not None and result.applied is True
+        assert env.services.people.get(env.ws.id, person.id).occupation == "Engineer"
+        assert dialog.list.count() == 3
+        assert "恢复字段" in dialog.list.item(0).text()
+        assert "已恢复" in dialog.notice.text()
+    finally:
+        dialog.close()
+
+
+def test_confirm_dialog_lists_exact_field_changes(env, qt_app):
+    from app.ui.revision_history import RevertPreviewDialog
+
+    person = env.services.people.create(env.ws.id, "Alice", occupation="Engineer")
+    env.services.people.update(env.ws.id, person.id, occupation="Designer")
+    preview = env.services.change_revert.preview(env.ws.id, "PERSON", person.id, 1)
+    dialog = RevertPreviewDialog(preview)
+    qt_app.processEvents()
+    try:
+        assert dialog.fields.count() == 1
+        text = dialog.fields.item(0).text()
+        assert "职业" in text and "Designer" in text and "Engineer" in text
+    finally:
+        dialog.close()
+
+
 def test_people_page_history_button_opens_the_dialog(env, qt_app):
     from app.ui.main_window import MainWindow
 

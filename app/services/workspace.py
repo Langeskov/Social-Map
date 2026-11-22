@@ -50,7 +50,8 @@ class WorkspaceService:
                                      after=workspace_state(saved))
             return saved
 
-    def update(self, workspace_id: UUID, *, name: str, description: str | None = None) -> Workspace:
+    def update(self, workspace_id: UUID, *, name: str, description: str | None = None,
+               operation=None) -> Workspace:
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
             old = workspace_required(repositories, workspace_id)
@@ -60,7 +61,8 @@ class WorkspaceService:
             before = workspace_state(old) if self._changes is not None else None
             saved = repositories.workspaces.save(replace(old, name=name.strip(), description=description, updated_at=utc_now()))
             if self._changes is not None:
-                context = self._changes.begin(workspace_id)
+                context = (operation if operation is not None
+                           else self._changes.begin(workspace_id))
                 self._changes.record(session, context, entity_type="WORKSPACE",
                                      action="UPDATE", entity=saved, before=before,
                                      after=workspace_state(saved))

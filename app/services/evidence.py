@@ -165,7 +165,7 @@ class EvidenceService:
                                      after=evidence_state(repositories, workspace_id, saved))
             return saved
 
-    def update_metadata(self, workspace_id, evidence_id, **changes):
+    def update_metadata(self, workspace_id, evidence_id, *, operation=None, **changes):
         if set(changes) - self.METADATA:
             raise DomainError("原始证据内容不可修改；只允许修改 title 与 annotation。")
         with write_operation(self._sessions) as session:
@@ -177,7 +177,8 @@ class EvidenceService:
             entity = replace(old, **changes, updated_at=self._changed_at(old))
             saved = repositories.evidence.update_metadata(entity)
             if self._changes is not None:
-                context = self._changes.begin(workspace_id)
+                context = (operation if operation is not None
+                           else self._changes.begin(workspace_id))
                 self._changes.record(session, context, entity_type="EVIDENCE",
                                      action="UPDATE", entity=saved, before=before,
                                      after=evidence_state(repositories, workspace_id, saved))

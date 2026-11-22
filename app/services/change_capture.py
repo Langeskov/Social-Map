@@ -47,11 +47,18 @@ SERIALIZER = ChangeSnapshotSerializer()
 
 @dataclass(frozen=True)
 class ChangeOperationContext:
-    """Identity of one user operation; all audit rows of the operation share it."""
+    """Identity of one user operation; all audit rows of the operation share it.
+
+    ``action_override``/``metadata`` are used only by the controlled revert
+    (Phase 14.4): the underlying Service still performs a normal domain update, but
+    the audit row is labelled REVERT and carries its source revision.
+    """
 
     workspace_id: UUID
     operation_id: UUID
     recorded_at: datetime
+    action_override: str | None = None
+    metadata: dict | None = None
 
 
 def _ensure_reference(session, workspace_id, entity_type, entity_id, *, label):
@@ -94,9 +101,12 @@ class ChangeLogWriter:
             raise DomainError("ChangeLogWriter 需要显式 ChangeOperationContext。")
         if entity_type not in ENTITY_TYPES:
             raise DomainError(f"未知的实体类型：{entity_type!r}。")
-        if action not in ALLOWED_ACTIONS[entity_type]:
-            raise DomainError(f"{entity_type} 不允许操作 {action}。")
-        if action in _NOOP_SKIP_ACTIONS and before is not None and after is not None \
+        effective_action = action
+        if context.action_override and action == "UPDATE":
+            effective_action = context.action_override
+        if effective_action not in ALLOWED_ACTIONS[entity_type]:
+            raise DomainError(f"{entity_type} 不允许操作 {effective_action}。")
+        if effective_action in _NOOP_SKIP_ACTIONS and before is not None and after is not None \
                 and before == after:
             return None
         entity_id = getattr(entity, "id", None)
@@ -110,8 +120,8 @@ class ChangeLogWriter:
             raise DomainError(f"{action} 不应有修改前快照。")
         if action in ("CREATE", "IMPORT", "APPEND_HISTORY") and after is None:
             raise DomainError(f"{action} 必须有修改后快照。")
-        if action not in _CREATE_LIKE and (before is None or after is None):
-            raise DomainError(f"{action} 必须同时记录修改前后快照。")
+        if effective_action not in _CREATE_LIKE and (before is None or after is None):
+            raise DomainError(f"{effective_action} 必须同时记录修改前后快照。")
         _ensure_reference(session, context.workspace_id, entity_type, entity_id,
                           label="实体")
         if parent is not None:
@@ -120,7 +130,7 @@ class ChangeLogWriter:
                 raise DomainError(f"未知的父实体类型：{parent_type!r}。")
             _ensure_reference(session, context.workspace_id, parent_type, parent_id,
                               label="父实体")
-        if action in _CREATE_LIKE:
+        if effective_action in _CREATE_LIKE:
             fields = tuple(after or ())
         else:
             fields = SERIALIZER.changed_fields(entity_type, before, after)
@@ -129,13 +139,16 @@ class ChangeLogWriter:
             context.workspace_id, entity_type, entity_id)
         revision_no = 1 if last is None else last + 1
         parent_type, parent_id = (None, None) if parent is None else parent
+        merged_metadata = dict(context.metadata or {})
+        merged_metadata.update(metadata or {})
         entry = ChangeLogEntry(
             workspace_id=context.workspace_id, entity_type=entity_type,
-            entity_id=entity_id, action=action, operation_id=context.operation_id,
+            entity_id=entity_id, action=effective_action,
+            operation_id=context.operation_id,
             revision_no=revision_no, changed_fields=fields,
-            before_snapshot=None if action in _CREATE_LIKE else before,
+            before_snapshot=None if effective_action in _CREATE_LIKE else before,
             after_snapshot=after, payload_version=PAYLOAD_VERSION,
             recorded_at=context.recorded_at,
             parent_entity_type=parent_type, parent_entity_id=parent_id,
-            metadata=metadata)
+            metadata=merged_metadata or None)
         return repositories.change_log.add(entry)

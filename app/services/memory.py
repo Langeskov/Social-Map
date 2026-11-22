@@ -142,7 +142,7 @@ class MemoryService:
 
     def update(self, workspace_id, memory_id, *, content=None, kind=None, person_id=None,
                clear_person=False, valid_from=None, valid_until=None, clear_valid_from=False,
-               clear_valid_until=False) -> Memory:
+               clear_valid_until=False, operation=None) -> Memory:
         """Edit content/kind/person/validity. Provenance and source stay untouched."""
         with write_operation(self._sessions) as session:
             repositories = self._repositories(session)
@@ -174,7 +174,8 @@ class MemoryService:
             before = memory_state(current) if self._changes is not None else None
             saved = repositories.memories.update(updated)
             if self._changes is not None:
-                context = self._changes.begin(workspace_id)
+                context = (operation if operation is not None
+                           else self._changes.begin(workspace_id))
                 self._changes.record(session, context, entity_type="MEMORY",
                                      action="UPDATE", entity=saved, before=before,
                                      after=memory_state(saved))

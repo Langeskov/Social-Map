@@ -18,7 +18,12 @@ Frozen codes
               MEDIA_WORKSPACE_MISMATCH, PERSON_MEDIA_DANGLING,
               EVIDENCE_MEDIA_DANGLING, MEDIA_FILE_MISSING, MEDIA_FILE_SIZE_MISMATCH,
               MEDIA_FILE_HASH_MISMATCH, ANALYSIS_SOURCE_DANGLING,
-              MEMORY_SOURCE_INVALID, MEMORY_STATE_INVALID
+              MEMORY_SOURCE_INVALID, MEMORY_STATE_INVALID,
+              CHANGE_LOG_ORPHAN_ENTITY, CHANGE_LOG_WORKSPACE_MISMATCH,
+              CHANGE_LOG_INVALID_TYPE, CHANGE_LOG_INVALID_ACTION,
+              CHANGE_LOG_REVISION_GAP, CHANGE_LOG_REVISION_DUPLICATE,
+              CHANGE_LOG_SNAPSHOT_INVALID, CHANGE_LOG_PARENT_INVALID,
+              CHANGE_LOG_OPERATION_INCONSISTENT
     WARNING : MEDIA_UNREFERENCED, ORPHAN_MEDIA_FILE, MEMORY_EXPIRED,
               MEDIA_STORE_UNAVAILABLE, ANALYSIS_RUN_STATE_INVALID
 
@@ -52,6 +57,7 @@ Why some checks are structurally empty
     missing, because ``workspace`` is keyed by the very id the child copies.
 """
 import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -61,13 +67,17 @@ from uuid import UUID
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.engine import Connection, Engine
 
+from app.domain.entities import (ACTIONS, ALLOWED_ACTIONS, ENTITY_TYPES,
+                                 SUPPORTED_PAYLOAD_VERSIONS, decode_json_object,
+                                 decode_snapshot)
+from app.domain.errors import DomainError
 from app.domain.validation import normalize_datetime, utc_now, validate_uuid
 from app.storage.models import (
     AnalysisEventSourceModel, AnalysisEvidenceSourceModel, AnalysisPersonSourceModel,
-    AnalysisRelationshipSourceModel, AnalysisRunModel, EventModel, EventParticipantModel,
-    EvidenceMediaModel, EvidenceModel, MediaModel, MemoryModel, PersonAliasModel,
-    PersonMediaModel, PersonModel, RelationshipHistoryModel, RelationshipModel,
-    SearchDocumentModel, WorkspaceModel,
+    AnalysisRelationshipSourceModel, AnalysisRunModel, ChangeLogModel, EventModel,
+    EventParticipantModel, EvidenceMediaModel, EvidenceModel, MediaModel, MemoryModel,
+    PersonAliasModel, PersonMediaModel, PersonModel, RelationshipHistoryModel,
+    RelationshipModel, SearchDocumentModel, WorkspaceModel,
 )
 
 ERROR = "ERROR"
@@ -84,6 +94,8 @@ PROJECTION_TABLES = ("search_document",)
 ANALYSIS_TABLES = ("analysis_run", "analysis_person_source", "analysis_relationship_source",
                    "analysis_event_source", "analysis_evidence_source")
 MEMORY_TABLES = ("memory",)
+#: Phase 14 append-only audit table: counted separately, never a fact table.
+CHANGE_LOG_TABLES = ("change_log",)
 
 TABLE_MODELS = {
     "workspace": WorkspaceModel, "person": PersonModel, "person_alias": PersonAliasModel,
@@ -96,6 +108,15 @@ TABLE_MODELS = {
     "analysis_relationship_source": AnalysisRelationshipSourceModel,
     "analysis_event_source": AnalysisEventSourceModel,
     "analysis_evidence_source": AnalysisEvidenceSourceModel, "memory": MemoryModel,
+    "change_log": ChangeLogModel,
+}
+
+#: ChangeLog polymorphic entity type -> mapped table used for reference checks.
+CHANGE_LOG_ENTITY_MODELS = {
+    "WORKSPACE": WorkspaceModel, "PERSON": PersonModel,
+    "RELATIONSHIP": RelationshipModel, "RELATIONSHIP_HISTORY": RelationshipHistoryModel,
+    "EVENT": EventModel, "EVIDENCE": EvidenceModel, "MEDIA": MediaModel,
+    "MEMORY": MemoryModel,
 }
 
 #: code -> (child table, child parent column, parent table)
@@ -262,6 +283,7 @@ class DataIntegrityService:
             self._check_analysis_sources(connection, workspace_id, errors)
             self._check_memory_sources(connection, workspace_id, errors)
             self._check_memory_state(connection, workspace_id, errors)
+            self._check_change_log(connection, workspace_id, counts, errors)
             self._check_expired_memories(connection, workspace_id, checked_at, warnings)
             self._check_analysis_runs(connection, workspace_id, warnings)
             counts["media_unreferenced"] = self._check_unreferenced_media(
@@ -330,6 +352,148 @@ class DataIntegrityService:
                 relative = path.name
             yield path, relative
 
+    def _check_change_log(self, connection, workspace_id, counts, errors):
+        """Audit the append-only ChangeLog against its entity references.
+
+        The database cannot express the polymorphic ``entity_type/entity_id``
+        reference as a foreign key, so this read-only audit is the compensating
+        control: orphan rows, workspace mismatches, invalid type/action, revision
+        gaps, unreadable snapshots, invalid parents and cross-workspace operations
+        are reported, never repaired.
+        """
+        table = ChangeLogModel.__table__
+        statement = self._scoped(select(table), table.c.workspace_id, workspace_id)
+        rows = self._rows(connection, statement)
+        counts["change_log_rows_checked"] = len(rows)
+        revisions: dict[tuple, list[int]] = {}
+        operations: dict[object, set] = {}
+
+        def reference(entity_type, entity_id):
+            model = CHANGE_LOG_ENTITY_MODELS.get(entity_type)
+            if model is None:
+                return None
+            table = model.__table__
+            if entity_type == "WORKSPACE":
+                return connection.execute(select(table.c.id).where(
+                    table.c.id == entity_id)).first()
+            return connection.execute(select(table.c.id, table.c.workspace_id).where(
+                table.c.id == entity_id)).first()
+
+        for row in rows:
+            values = row._mapping
+            workspace = values["workspace_id"]
+            entity_type = values["entity_type"]
+            entity_id = values["entity_id"]
+            action = values["action"]
+            operation_id = values["operation_id"]
+            revision_no = values["revision_no"]
+            operations.setdefault(operation_id, set()).add(workspace)
+            revisions.setdefault((workspace, entity_type, entity_id), []).append(revision_no)
+            if entity_type not in ENTITY_TYPES:
+                errors.append(IntegrityIssue(
+                    code="CHANGE_LOG_INVALID_TYPE", severity=ERROR,
+                    message="ChangeLog 行包含未知的实体类型。",
+                    entity_type="change_log", entity_id=str(values["id"]),
+                    detail=f"entity_type={entity_type!r}"))
+                continue
+            if action not in ACTIONS or action not in ALLOWED_ACTIONS[entity_type]:
+                errors.append(IntegrityIssue(
+                    code="CHANGE_LOG_INVALID_ACTION", severity=ERROR,
+                    message="ChangeLog 行包含该实体不允许的操作类型。",
+                    entity_type="change_log", entity_id=str(values["id"]),
+                    detail=f"entity_type={entity_type} action={action!r}"))
+            found_entity = reference(entity_type, entity_id)
+            if found_entity is None:
+                errors.append(IntegrityIssue(
+                    code="CHANGE_LOG_ORPHAN_ENTITY", severity=ERROR,
+                    message="ChangeLog 引用的实体不存在。",
+                    entity_type=entity_type, entity_id=str(entity_id),
+                    detail=f"workspace={workspace}"))
+            elif entity_type == "WORKSPACE":
+                if entity_id != workspace:
+                    errors.append(IntegrityIssue(
+                        code="CHANGE_LOG_WORKSPACE_MISMATCH", severity=ERROR,
+                        message="ChangeLog 行与 Workspace 实体的作用域不一致。",
+                        entity_type=entity_type, entity_id=str(entity_id)))
+            elif found_entity[1] != workspace:
+                errors.append(IntegrityIssue(
+                    code="CHANGE_LOG_WORKSPACE_MISMATCH", severity=ERROR,
+                    message="ChangeLog 的实体属于另一个 Workspace。",
+                    entity_type=entity_type, entity_id=str(entity_id),
+                    detail=f"log_workspace={workspace} entity_workspace={found_entity[1]}"))
+            parent_type = values["parent_entity_type"]
+            parent_id = values["parent_entity_id"]
+            if (parent_type is None) != (parent_id is None):
+                errors.append(IntegrityIssue(
+                    code="CHANGE_LOG_PARENT_INVALID", severity=ERROR,
+                    message="ChangeLog 的父引用只存在一半。",
+                    entity_type="change_log", entity_id=str(values["id"])))
+            elif parent_type is not None:
+                parent_row = reference(parent_type, parent_id) \
+                    if parent_type in ENTITY_TYPES else None
+                invalid_parent = parent_row is None
+                if parent_row is not None:
+                    if parent_type == "WORKSPACE":
+                        invalid_parent = parent_id != workspace
+                    else:
+                        invalid_parent = parent_row[1] != workspace
+                if parent_type not in ENTITY_TYPES or invalid_parent:
+                    errors.append(IntegrityIssue(
+                        code="CHANGE_LOG_PARENT_INVALID", severity=ERROR,
+                        message="ChangeLog 的父实体引用无效。",
+                        entity_type=parent_type, entity_id=str(parent_id),
+                        detail=f"workspace={workspace}"))
+            try:
+                version = values["payload_version"]
+                if version not in SUPPORTED_PAYLOAD_VERSIONS:
+                    raise DomainError("unknown payload version")
+                decode_snapshot(version, values["before_snapshot"])
+                decode_snapshot(version, values["after_snapshot"])
+                fields = json.loads(values["changed_fields"])
+                if not isinstance(fields, list) or any(
+                        not isinstance(item, str) or not item for item in fields):
+                    raise DomainError("bad changed_fields")
+                if values["metadata"] is not None:
+                    decode_json_object(values["metadata"], where="metadata")
+            except (DomainError, TypeError, ValueError):
+                errors.append(IntegrityIssue(
+                    code="CHANGE_LOG_SNAPSHOT_INVALID", severity=ERROR,
+                    message="ChangeLog 的快照或字段列表无法解析。",
+                    entity_type=entity_type, entity_id=str(entity_id),
+                    detail=f"payload_version={values['payload_version']!r}"))
+            if isinstance(revision_no, bool) or not isinstance(revision_no, int) \
+                    or revision_no < 1:
+                errors.append(IntegrityIssue(
+                    code="CHANGE_LOG_REVISION_DUPLICATE", severity=ERROR,
+                    message="ChangeLog 的版本号非法。",
+                    entity_type=entity_type, entity_id=str(entity_id)))
+
+        for (workspace, entity_type, entity_id), numbers in revisions.items():
+            expected = set(range(1, max(numbers) + 1))
+            missing = sorted(expected - set(numbers))
+            duplicated = sorted({number for number in numbers
+                                 if numbers.count(number) > 1})
+            if duplicated:
+                errors.append(IntegrityIssue(
+                    code="CHANGE_LOG_REVISION_DUPLICATE", severity=ERROR,
+                    message="同一实体存在重复的历史版本号。",
+                    entity_type=entity_type, entity_id=str(entity_id),
+                    detail=f"workspace={workspace} revisions={duplicated}"))
+            if missing:
+                errors.append(IntegrityIssue(
+                    code="CHANGE_LOG_REVISION_GAP", severity=ERROR,
+                    message="同一实体的历史版本号不连续。",
+                    entity_type=entity_type, entity_id=str(entity_id),
+                    detail=f"workspace={workspace} missing={missing}"))
+        for operation_id, workspaces in operations.items():
+            if len(workspaces) > 1:
+                errors.append(IntegrityIssue(
+                    code="CHANGE_LOG_OPERATION_INCONSISTENT", severity=ERROR,
+                    message="同一操作跨越了多个 Workspace。",
+                    entity_type="change_log", entity_id=str(operation_id),
+                    detail=f"workspaces={sorted(str(item) for item in workspaces)}"))
+        return None
+
     @staticmethod
     def _scoped(statement, column, workspace_id):
         return statement if workspace_id is None else statement.where(column == workspace_id)
@@ -360,7 +524,8 @@ class DataIntegrityService:
                 detail=f"table={table} rowid={rowid} parent={parent}"))
 
     def _count_rows(self, connection, workspace_id, counts):
-        for name in FACT_TABLES + PROJECTION_TABLES + ANALYSIS_TABLES + MEMORY_TABLES:
+        for name in (FACT_TABLES + PROJECTION_TABLES + ANALYSIS_TABLES + MEMORY_TABLES
+             + CHANGE_LOG_TABLES):
             table = TABLE_MODELS[name].__table__
             statement = select(func.count()).select_from(table)
             if workspace_id is not None and "workspace_id" in table.c:

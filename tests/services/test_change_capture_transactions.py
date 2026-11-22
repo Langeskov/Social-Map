@@ -168,6 +168,8 @@ def test_application_composition_shares_one_writer(env):
                     services.evidence, services.relationships, services.memories,
                     services.workspaces):
         assert service._changes is writer
+    assert services.change_revert is not None
+    assert services.change_revert.preview is not None
 
 
 def test_service_without_writer_does_not_capture(tmp_path):

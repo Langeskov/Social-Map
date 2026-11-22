@@ -102,7 +102,7 @@ class PersonService:
                                                         aliases=(), images=()))
             return saved
 
-    def update(self, workspace_id: UUID, person_id: UUID, **changes) -> Person:
+    def update(self, workspace_id: UUID, person_id: UUID, *, operation=None, **changes) -> Person:
         if set(changes) - self.EDITABLE:
             raise DomainError("不允许修改人物 ID、Workspace 或生命周期字段。")
         if isinstance(changes.get("display_name"), str):
@@ -113,8 +113,10 @@ class PersonService:
             before = (person_state(repositories, workspace_id, old)
                       if self._changes is not None else None)
             saved = repositories.people.save(replace(old, **changes, updated_at=utc_now()))
-            if self._changes is not None:
-                context = self._changes.begin(workspace_id)
+            context = (operation if operation is not None
+                       else (self._changes.begin(workspace_id)
+                             if self._changes is not None else None))
+            if self._changes is not None and context is not None:
                 self._changes.record(session, context, entity_type="PERSON",
                                      action="UPDATE", entity=saved, before=before,
                                      after=person_state(repositories, workspace_id, saved))

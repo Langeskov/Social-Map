@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QLabel, Q
                                QListWidgetItem, QPlainTextEdit, QPushButton, QSplitter,
                                QVBoxLayout, QWidget)
 
+from app.domain.errors import DomainError
 from app.services.change_history import ENTITY_LABELS, LONG_TEXT_LIMIT, RevisionView
 from app.ui.analysis_dialog import plain_label, read_only_text, utc_text
 from app.ui.operations import run_operation
@@ -56,6 +57,34 @@ class OperationDialog(QDialog):
         layout.addWidget(self.list, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
+class RevertPreviewDialog(QDialog):
+    """Confirmation dialog for a controlled field revert (never a silent write)."""
+
+    def __init__(self, preview, parent=None):
+        super().__init__(parent)
+        self.preview = preview
+        self.setWindowTitle("恢复字段预览")
+        self.setObjectName("revertPreviewDialog")
+        self.resize(640, 420)
+        layout = QVBoxLayout(self)
+        layout.addWidget(plain_label(
+            f"将把以下字段恢复为版本 #{preview.source_revision_no} 的值。"
+            "这会作为一次新的业务操作记录，历史版本不会被修改。"))
+        self.fields = QListWidget()
+        self.fields.setObjectName("revertFieldList")
+        for item in preview.fields:
+            self.fields.addItem(QListWidgetItem(
+                f"{item.label}：{item.current_text} → {item.target_text}"))
+        layout.addWidget(self.fields, 1)
+        buttons = QDialogButtonBox()
+        cancel = buttons.addButton("取消", QDialogButtonBox.ButtonRole.RejectRole)
+        confirm = buttons.addButton("确认恢复", QDialogButtonBox.ButtonRole.AcceptRole)
+        confirm.setObjectName("revertConfirmButton")
+        cancel.clicked.connect(self.reject)
+        confirm.clicked.connect(self.accept)
         layout.addWidget(buttons)
 
 
@@ -123,6 +152,11 @@ class RevisionHistoryDialog(QDialog):
         self.full_text_button.setEnabled(False)
         self.full_text_button.clicked.connect(self._show_full_text)
         actions.addWidget(self.full_text_button)
+        self.revert_button = QPushButton("恢复此版本字段…")
+        self.revert_button.setObjectName("revisionRevertButton")
+        self.revert_button.setEnabled(False)
+        self.revert_button.clicked.connect(self._start_revert)
+        actions.addWidget(self.revert_button)
         actions.addStretch(1)
         right_layout.addLayout(actions)
         splitter.addWidget(right)
@@ -256,6 +290,8 @@ class RevisionHistoryDialog(QDialog):
     def _render(self, view: RevisionView | None):
         self.full_text_button.setEnabled(False)
         self.operation_button.setEnabled(False)
+        self.revert_button.setEnabled(False)
+        self._revert_preview = None
         if view is None:
             self.diff.setPlainText("选择左侧版本查看字段差异。")
             return
@@ -288,6 +324,44 @@ class RevisionHistoryDialog(QDialog):
             lines.append("该次操作没有业务字段差异（例如生命周期动作）。")
         self.diff.setPlainText("\n".join(lines))
         self.operation_button.setEnabled(True)
+        self._refresh_revert_availability(view)
+
+    def _refresh_revert_availability(self, view: RevisionView):
+        """Enable the revert button only for a whitelisted, currently valid target."""
+        service = getattr(self.services, "change_revert", None)
+        if service is None:
+            return
+        try:
+            preview = service.preview(self.workspace_id, view.entry.entity_type,
+                                      view.entry.entity_id, view.revision_no)
+        except DomainError as exc:
+            self.revert_button.setToolTip(str(exc))
+            return
+        self._revert_preview = preview
+        if preview.can_revert and preview.has_changes:
+            self.revert_button.setEnabled(True)
+            self.revert_button.setToolTip("")
+        else:
+            self.revert_button.setToolTip(preview.reason)
+
+    def _start_revert(self):
+        preview = getattr(self, "_revert_preview", None)
+        if preview is None or not preview.can_revert or not preview.has_changes:
+            return None
+        dialog = RevertPreviewDialog(preview, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        result = run_operation(
+            self,
+            lambda: self.services.change_revert.revert(
+                self.workspace_id, preview.entity_type, preview.entity_id,
+                preview.source_revision_no, confirmed=True),
+            context="controlled revert")
+        if result is None:
+            return None
+        self.refresh()
+        self.notice.setText(result.message)
+        return result
 
     def _show_operation(self):
         view = self._current_view()
@@ -344,4 +418,4 @@ def open_revision_history(parent, services, workspace_id, entity_type, entity_id
 
 
 __all__ = ["RevisionHistoryDialog", "OperationDialog", "LongTextDialog",
-           "open_revision_history"]
+           "RevertPreviewDialog", "open_revision_history"]

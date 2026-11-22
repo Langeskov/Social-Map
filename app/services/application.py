@@ -15,6 +15,7 @@ from app.services.memory import MemoryService
 from app.services.backup import BackupService, BackupVerificationService
 from app.services.change_capture import ChangeLogWriter
 from app.services.change_history import ChangeHistoryService
+from app.services.change_revert import ChangeRevertService
 from app.services.export import WorkspaceExportService
 from app.services.integrity import DataIntegrityService
 from app.services.llm import LLMConfigStore, LLMGateway
@@ -37,6 +38,7 @@ class ApplicationServices:
     analysis: AnalysisService | None = None
     memories: MemoryService | None = None
     change_history: ChangeHistoryService | None = None
+    change_revert: ChangeRevertService | None = None
     integrity: DataIntegrityService | None = None
     backups: BackupService | None = None
     backup_verification: BackupVerificationService | None = None
@@ -52,15 +54,24 @@ def create_application_services(config: AppConfig, sessions, *, llm_gateway=None
     store = MediaStore(config.storage_paths.data_dir)
     media = MediaService(sessions, store, changes=changes)
     people = PersonService(sessions, media, changes=changes)
+    relationships = RelationshipService(sessions, changes=changes)
+    events = EventService(sessions, changes=changes)
+    evidence = EvidenceService(sessions, changes=changes)
+    memories = MemoryService(sessions, changes=changes)
+    history = ChangeHistoryService(sessions)
+    # Controlled revert calls the same service instances, so it cannot bypass their
+    # domain rules; its only extra power is labelling the audit row REVERT.
+    revert = ChangeRevertService(sessions, people=people, events=events, evidence=evidence,
+                                 memories=memories, workspaces=workspaces, history=history,
+                                 changes=changes)
     gateway = llm_gateway or LLMGateway(LLMConfigStore.for_data_dir(config.storage_paths.data_dir))
-    return ApplicationServices(workspaces=workspaces, people=people, media=media,
-        initial_workspace=workspaces.ensure_default(), relationships=RelationshipService(sessions, changes=changes),
-        events=EventService(sessions, changes=changes), evidence=EvidenceService(sessions, changes=changes),
-        search=SearchService(sessions),
+    return ApplicationServices(
+        workspaces=workspaces, people=people, media=media,
+        initial_workspace=workspaces.ensure_default(), relationships=relationships,
+        events=events, evidence=evidence, search=SearchService(sessions),
         timeline=TimelineService(sessions), dashboard=DashboardService(sessions),
-        llm=gateway, analysis=AnalysisService(sessions, gateway),
-        memories=MemoryService(sessions, changes=changes),
-        change_history=ChangeHistoryService(sessions),
+        llm=gateway, analysis=AnalysisService(sessions, gateway), memories=memories,
+        change_history=history, change_revert=revert,
         integrity=DataIntegrityService(sessions, media_store=store),
         backups=BackupService(config), backup_verification=BackupVerificationService(config),
         exports=WorkspaceExportService(config, sessions))

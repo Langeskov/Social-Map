@@ -170,3 +170,39 @@ def test_validation_and_read_only_api(history):
         history.revision(uuid4(), "PERSON", uuid4(), 0)
     for forbidden in ("record", "write", "revert", "update", "delete"):
         assert not hasattr(history, forbidden)
+
+
+def test_parent_history_is_newest_first_across_pages(env, history):
+    from datetime import timedelta
+    from uuid import uuid4
+    from app.storage.models import ChangeLogModel
+
+    alice = env.services.people.create(env.ws.id, "Alice")
+    bob = env.services.people.create(env.ws.id, "Bob")
+    relationship = env.services.relationships.create(env.ws.id, alice.id, bob.id,
+                                                     "COLLEAGUE")
+    base = datetime(2026, 11, 20, tzinfo=timezone.utc)
+    with transaction(env.runtime.sessions) as session:
+        for index in range(55):
+            session.add(ChangeLogModel(
+                id=uuid4(), workspace_id=env.ws.id,
+                entity_type="RELATIONSHIP_HISTORY", entity_id=uuid4(),
+                parent_entity_type="RELATIONSHIP", parent_entity_id=relationship.id,
+                action="APPEND_HISTORY", operation_id=uuid4(), revision_no=1,
+                changed_fields='["event_id","note","relationship_id","state"]',
+                before_snapshot=None,
+                after_snapshot='{"event_id":null,"note":null,"relationship_id":"%s",'
+                               '"state":"ACTIVE"}' % relationship.id,
+                payload_version="1", recorded_at=base + timedelta(seconds=index)))
+    first = history.parent_history(env.ws.id, "RELATIONSHIP", relationship.id, limit=50)
+    second = history.parent_history(env.ws.id, "RELATIONSHIP", relationship.id,
+                                    limit=50, offset=50)
+    assert len(first.revisions) == 50 and first.has_more is True
+    assert len(second.revisions) > 0 and second.has_more is False
+    combined = first.revisions + second.revisions
+    ids = [view.entry.id for view in combined]
+    assert len(ids) == len(set(ids))              # no duplicates across pages
+    stamps = [view.entry.recorded_at for view in combined]
+    assert stamps == sorted(stamps, reverse=True)  # newest-first, no reversal per page
+    # 55 injected + the initial APPEND_HISTORY from relationship creation
+    assert len(combined) == 56

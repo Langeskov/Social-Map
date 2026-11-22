@@ -3,6 +3,7 @@
 The audit is read-only. Broken rows are injected directly (bypassing the writer) to
 prove the compensating control sees them; nothing is repaired.
 """
+import json
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -120,3 +121,54 @@ def test_audit_workspace_filter_limits_change_log_checks(env):
     assert "CHANGE_LOG_ORPHAN_ENTITY" not in change_codes(env, env.ws.id)
     assert "CHANGE_LOG_ORPHAN_ENTITY" in change_codes(env, other.id)
     assert person is not None
+
+
+PERSON_SNAPSHOT = {
+    "display_name": "Alice", "real_name": None, "gender": None, "birthday": None,
+    "occupation": None, "organization": None, "location": None, "notes": None,
+    "aliases": [], "images": [],
+}
+
+
+def person_row(env, person_id, *, action="UPDATE", before, after, fields=None):
+    values = dict(workspace_id=env.ws.id, entity_type="PERSON",
+                  entity_id=person_id, action=action, operation_id=uuid4(),
+                  revision_no=2,
+                  changed_fields=fields if fields is not None else '["occupation"]',
+                  before_snapshot=(None if before is None else json.dumps(before)),
+                  after_snapshot=(None if after is None else json.dumps(after)),
+                  payload_version="1", recorded_at=NOW)
+    insert_row(env.runtime, **values)
+
+
+def test_snapshot_outside_whitelist_is_reported(env):
+    person = env.services.people.create(env.ws.id, "Alice")
+    after = dict(PERSON_SNAPSHOT, display_name="Alice", occupation="Engineer")
+    after["evil_field"] = "value"
+    person_row(env, person.id, before=PERSON_SNAPSHOT, after=after,
+               fields='["display_name","occupation"]')
+    assert "CHANGE_LOG_SNAPSHOT_INVALID" in change_codes(env, env.ws.id)
+
+
+def test_snapshot_missing_whitelisted_field_is_reported(env):
+    person = env.services.people.create(env.ws.id, "Alice")
+    after = dict(PERSON_SNAPSHOT, occupation="Engineer")
+    after.pop("notes")
+    person_row(env, person.id, before=PERSON_SNAPSHOT, after=after,
+               fields='["occupation"]')
+    assert "CHANGE_LOG_SNAPSHOT_INVALID" in change_codes(env, env.ws.id)
+
+
+def test_changed_fields_mismatch_is_reported(env):
+    person = env.services.people.create(env.ws.id, "Alice")
+    after = dict(PERSON_SNAPSHOT, occupation="Engineer")
+    person_row(env, person.id, before=PERSON_SNAPSHOT, after=after,
+               fields='["display_name"]')
+    assert "CHANGE_LOG_CHANGED_FIELDS_INVALID" in change_codes(env, env.ws.id)
+
+
+def test_action_snapshot_constraint_is_reported(env):
+    person = env.services.people.create(env.ws.id, "Alice")
+    person_row(env, person.id, action="UPDATE", before=None,
+               after=PERSON_SNAPSHOT, fields='[]')
+    assert "CHANGE_LOG_SNAPSHOT_INVALID" in change_codes(env, env.ws.id)

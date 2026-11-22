@@ -316,3 +316,104 @@ def test_event_detail_dialog_exposes_history_button(env, qt_app):
         window = dialog
         window.close()
         qt_app.processEvents()
+
+
+PERSON_SNAPSHOT = {
+    "display_name": "Alice", "real_name": None, "gender": None, "birthday": None,
+    "occupation": None, "organization": None, "location": None, "notes": None,
+    "aliases": [], "images": [],
+}
+
+
+def _insert_history_rows(env, *, entity_type, entity_id, count, parent=None,
+                         action="UPDATE", start_revision=2):
+    import json
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid4
+    from app.storage.models import ChangeLogModel
+
+    base = datetime(2026, 11, 20, tzinfo=timezone.utc)
+    with transaction(env.runtime.sessions) as session:
+        for index in range(count):
+            after = dict(PERSON_SNAPSHOT, display_name=f"Alice {index}")
+            session.add(ChangeLogModel(
+                id=uuid4(), workspace_id=env.ws.id, entity_type=entity_type,
+                entity_id=entity_id,
+                parent_entity_type=None if parent is None else "RELATIONSHIP",
+                parent_entity_id=parent,
+                action=action, operation_id=uuid4(),
+                revision_no=start_revision + index,
+                changed_fields='["display_name"]' if action == "UPDATE" else "[]",
+                before_snapshot=None if action == "APPEND_HISTORY" else
+                json.dumps(PERSON_SNAPSHOT),
+                after_snapshot=json.dumps(after),
+                payload_version="1", recorded_at=base + timedelta(seconds=index)))
+
+
+def _revision_numbers(widget):
+    import re
+    return [int(re.search(r"#(\d+)", widget.item(i).text()).group(1))
+            for i in range(widget.count())]
+
+
+def test_history_pagination_loads_more_without_duplicates(env, qt_app):
+    from app.storage.models import ChangeLogModel
+    from app.services.unit_of_work import transaction
+
+    person = env.services.people.create(env.ws.id, "Alice")
+    _insert_history_rows(env, entity_type="PERSON", entity_id=person.id, count=55)
+    dialog = dialog_for(env, "PERSON", person.id)
+    qt_app.processEvents()
+    try:
+        assert dialog.list.count() == 50          # newest-first first page
+        assert _revision_numbers(dialog.list)[0] == 56
+        dialog._load_more()
+        qt_app.processEvents()
+        numbers = _revision_numbers(dialog.list)
+        assert dialog.list.count() == 56
+        assert len(numbers) == len(set(numbers))   # no duplicated page
+        assert sorted(numbers) == list(range(1, 57))
+        assert numbers == sorted(numbers, reverse=True)
+    finally:
+        dialog.close()
+
+
+def test_relationship_related_pagination_loads_more_without_duplicates(env, qt_app):
+    from app.storage.models import ChangeLogModel
+    from app.services.unit_of_work import transaction
+    import json
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid4
+
+    alice = env.services.people.create(env.ws.id, "Alice")
+    bob = env.services.people.create(env.ws.id, "Bob")
+    relationship = env.services.relationships.create(env.ws.id, alice.id, bob.id,
+                                                     "COLLEAGUE")
+    base = datetime(2026, 11, 20, tzinfo=timezone.utc)
+    with transaction(env.runtime.sessions) as session:
+        for index in range(55):
+            session.add(ChangeLogModel(
+                id=uuid4(), workspace_id=env.ws.id,
+                entity_type="RELATIONSHIP_HISTORY", entity_id=uuid4(),
+                parent_entity_type="RELATIONSHIP", parent_entity_id=relationship.id,
+                action="APPEND_HISTORY", operation_id=uuid4(), revision_no=1,
+                changed_fields='["event_id","note","relationship_id","state"]',
+                before_snapshot=None,
+                after_snapshot=json.dumps({"event_id": None, "note": None,
+                                           "relationship_id": str(relationship.id),
+                                           "state": "ACTIVE"}),
+                payload_version="1", recorded_at=base + timedelta(seconds=index)))
+    dialog = dialog_for(env, "RELATIONSHIP", relationship.id)
+    qt_app.processEvents()
+    try:
+        assert dialog.related_list.count() == 50
+        dialog._load_more_related()
+        qt_app.processEvents()
+        # 55 injected + the initial APPEND_HISTORY; a repeated page would
+        # produce ~100 rows, so count and text uniqueness catch the bug.
+        assert dialog.related_list.count() == 56
+        texts = [dialog.related_list.item(i).text()
+                 for i in range(dialog.related_list.count())]
+        assert len(texts) == len(set(texts))
+    finally:
+        dialog.close()

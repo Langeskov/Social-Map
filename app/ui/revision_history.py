@@ -199,6 +199,7 @@ class RevisionHistoryDialog(QDialog):
         self._views = []
         self.list.clear()
         self._append_page(page)
+        self._offset = len(page.revisions)
         if page.legacy_hint:
             self.notice.setText(page.legacy_hint)
         elif not page.has_history:
@@ -217,6 +218,7 @@ class RevisionHistoryDialog(QDialog):
                 self._related_views = []
                 self.related_list.clear()
                 self._append_related_page(related)
+                self._related_offset = len(related.revisions)
         return page
 
     def _append_page(self, page):
@@ -251,8 +253,8 @@ class RevisionHistoryDialog(QDialog):
             context="revision history page")
         if page is None:
             return None
-        self._offset += len(self._views)
         self._append_page(page)
+        self._offset += len(page.revisions)
         return page
 
     def _load_more_related(self):
@@ -264,8 +266,8 @@ class RevisionHistoryDialog(QDialog):
             context="relationship history page")
         if page is None:
             return None
-        self._related_offset += len(self._related_views)
         self._append_related_page(page)
+        self._related_offset += len(page.revisions)
         return page
 
     # ------------------------------------------------------------- selection

@@ -22,8 +22,8 @@ Frozen codes
               CHANGE_LOG_ORPHAN_ENTITY, CHANGE_LOG_WORKSPACE_MISMATCH,
               CHANGE_LOG_INVALID_TYPE, CHANGE_LOG_INVALID_ACTION,
               CHANGE_LOG_REVISION_GAP, CHANGE_LOG_REVISION_DUPLICATE,
-              CHANGE_LOG_SNAPSHOT_INVALID, CHANGE_LOG_PARENT_INVALID,
-              CHANGE_LOG_OPERATION_INCONSISTENT
+              CHANGE_LOG_SNAPSHOT_INVALID, CHANGE_LOG_CHANGED_FIELDS_INVALID,
+              CHANGE_LOG_PARENT_INVALID, CHANGE_LOG_OPERATION_INCONSISTENT
     WARNING : MEDIA_UNREFERENCED, ORPHAN_MEDIA_FILE, MEMORY_EXPIRED,
               MEDIA_STORE_UNAVAILABLE, ANALYSIS_RUN_STATE_INVALID
 
@@ -68,10 +68,12 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.engine import Connection, Engine
 
 from app.domain.entities import (ACTIONS, ALLOWED_ACTIONS, ENTITY_TYPES,
-                                 SUPPORTED_PAYLOAD_VERSIONS, decode_json_object,
-                                 decode_snapshot)
+                                 SUPPORTED_PAYLOAD_VERSIONS, ChangeLogEntry,
+                                 decode_json_object, decode_snapshot)
 from app.domain.errors import DomainError
 from app.domain.validation import normalize_datetime, utc_now, validate_uuid
+from app.services.change_serialization import (COLLECTION_FIELDS, SNAPSHOT_FIELDS,
+                                               ChangeSnapshotSerializer)
 from app.storage.models import (
     AnalysisEventSourceModel, AnalysisEvidenceSourceModel, AnalysisPersonSourceModel,
     AnalysisRelationshipSourceModel, AnalysisRunModel, ChangeLogModel, EventModel,
@@ -82,6 +84,10 @@ from app.storage.models import (
 
 ERROR = "ERROR"
 WARNING = "WARNING"
+
+#: Semantic snapshot validation uses the same serializer as the writer.
+_CHANGE_SERIALIZER = ChangeSnapshotSerializer()
+_CREATE_LIKE_ACTIONS = ("CREATE", "IMPORT", "APPEND_HISTORY")
 
 #: The eleven business fact tables, in the order the schema introduced them.
 FACT_TABLES = ("workspace", "person", "person_alias", "media", "person_media",
@@ -447,20 +453,55 @@ class DataIntegrityService:
                 version = values["payload_version"]
                 if version not in SUPPORTED_PAYLOAD_VERSIONS:
                     raise DomainError("unknown payload version")
-                decode_snapshot(version, values["before_snapshot"])
-                decode_snapshot(version, values["after_snapshot"])
+                before = decode_snapshot(version, values["before_snapshot"])
+                after = decode_snapshot(version, values["after_snapshot"])
                 fields = json.loads(values["changed_fields"])
                 if not isinstance(fields, list) or any(
                         not isinstance(item, str) or not item for item in fields):
                     raise DomainError("bad changed_fields")
-                if values["metadata"] is not None:
-                    decode_json_object(values["metadata"], where="metadata")
+                metadata = (None if values["metadata"] is None else
+                            decode_json_object(values["metadata"], where="metadata"))
+                # Reuse the Domain contract for action/before/after constraints.
+                ChangeLogEntry(
+                    id=values["id"], workspace_id=workspace,
+                    entity_type=entity_type, entity_id=entity_id,
+                    parent_entity_type=parent_type, parent_entity_id=parent_id,
+                    action=action, operation_id=operation_id,
+                    revision_no=revision_no, changed_fields=tuple(fields),
+                    before_snapshot=before, after_snapshot=after,
+                    payload_version=version, metadata=metadata,
+                    recorded_at=values["recorded_at"])
+                # Every payload-version-1 snapshot carries exactly the audit-matrix
+                # whitelist for its entity type; a JSON-valid but structurally wrong
+                # snapshot is rejected instead of being silently displayed/diffed.
+                expected_keys = (set(SNAPSHOT_FIELDS[entity_type])
+                                 | set(COLLECTION_FIELDS.get(entity_type, ())))
+                for snapshot in (before, after):
+                    if snapshot is not None and set(snapshot) != expected_keys:
+                        raise DomainError("snapshot keys outside the whitelist")
             except (DomainError, TypeError, ValueError):
                 errors.append(IntegrityIssue(
                     code="CHANGE_LOG_SNAPSHOT_INVALID", severity=ERROR,
-                    message="ChangeLog 的快照或字段列表无法解析。",
+                    message="ChangeLog 的快照、字段列表或动作约束无效。",
                     entity_type=entity_type, entity_id=str(entity_id),
                     detail=f"payload_version={values['payload_version']!r}"))
+            else:
+                try:
+                    if action in _CREATE_LIKE_ACTIONS:
+                        expected_fields = tuple(after or ())
+                    else:
+                        expected_fields = _CHANGE_SERIALIZER.changed_fields(
+                            entity_type, before, after)
+                except DomainError:
+                    expected_fields = None
+                # Order is presentation-only; the semantic contract is the set
+                # of fields actually present in the snapshots.
+                if expected_fields is not None and set(fields) != set(expected_fields):
+                    errors.append(IntegrityIssue(
+                        code="CHANGE_LOG_CHANGED_FIELDS_INVALID", severity=ERROR,
+                        message="ChangeLog 的 changed_fields 与快照差异不一致。",
+                        entity_type=entity_type, entity_id=str(entity_id),
+                        detail=f"revision_no={revision_no}"))
             if isinstance(revision_no, bool) or not isinstance(revision_no, int) \
                     or revision_no < 1:
                 errors.append(IntegrityIssue(

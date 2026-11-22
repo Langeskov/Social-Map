@@ -86,7 +86,10 @@ class MediaService:
             if person_id is not None:
                 person_required(repositories, workspace_id, person_id)
             old = repositories.media.get_by_hash(workspace_id, staged.sha256, include_deleted=True)
-            media_created = old is None or old.deleted_at is not None
+            media_created = old is None
+            media_restored = old is not None and old.deleted_at is not None
+            media_before = (media_state(old)
+                            if media_restored and self._changes is not None else None)
             if old is not None:
                 if old.storage_path != receipt.storage_path or old.size_bytes != staged.size_bytes:
                     raise MediaValidationError("已有媒体元数据与内容寻址文件不一致，未覆盖原文件。")
@@ -101,6 +104,11 @@ class MediaService:
                 if media_created:
                     self._changes.record(session, operation, entity_type="MEDIA",
                                          action="IMPORT", entity=media,
+                                         after=media_state(media))
+                elif media_restored:
+                    self._changes.record(session, operation, entity_type="MEDIA",
+                                         action="RESTORE", entity=media,
+                                         before=media_before,
                                          after=media_state(media))
                 person = repositories.people.get(workspace_id, person_id) if person_id is not None else None
                 if person is not None:

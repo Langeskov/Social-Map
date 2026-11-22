@@ -301,10 +301,9 @@ class ChangeHistoryService:
             repositories = self._repositories(session)
             workspace_required(repositories, workspace_id)
             rows = repositories.change_log.list_by_parent(
-                workspace_id, parent_type, parent_id, limit=limit + 1, offset=offset)
+                workspace_id, parent_type, parent_id, limit=limit + 1, offset=offset,
+                newest_first=True)
         has_more = len(rows) > limit
-        rows = sorted(rows, key=lambda row: (row.recorded_at, row.revision_no, row.id),
-                      reverse=True)
         return HistoryPage(entity_type=parent_type, entity_id=parent_id,
                            revisions=tuple(_view(row) for row in rows[:limit]),
                            has_more=has_more, offset=offset)

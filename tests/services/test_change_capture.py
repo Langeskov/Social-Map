@@ -366,3 +366,19 @@ def test_person_with_avatar_is_one_operation_without_duplicate_person_rows(env, 
     person_rows = history(env, "PERSON", person.id)
     assert len(person_rows) == 1
     assert len(person_rows[0].after_snapshot["images"]) == 1
+
+
+def test_media_reimport_after_archive_is_restore_not_import(env, images):
+    media = env.services.media.import_file(env.ws.id, images[0])
+    env.services.media.soft_delete(env.ws.id, media.id)
+    again = env.services.media.import_file(env.ws.id, images[0])
+    assert again.id == media.id
+    rows = history(env, "MEDIA", media.id)
+    assert [row.action for row in rows] == ["IMPORT", "ARCHIVE", "RESTORE"]
+    assert rows[-1].before_snapshot is not None and rows[-1].after_snapshot is not None
+    assert rows[-1].before_snapshot == rows[-1].after_snapshot  # content unchanged
+    # Re-importing an already active media must not fabricate history.
+    before = len(rows)
+    duplicate = env.services.media.import_file(env.ws.id, images[0])
+    assert duplicate.id == media.id
+    assert len(history(env, "MEDIA", media.id)) == before

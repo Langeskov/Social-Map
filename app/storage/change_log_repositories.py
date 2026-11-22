@@ -110,13 +110,19 @@ class SQLChangeLogRepository:
         return self._list(query, limit=limit, offset=offset)
 
     def list_by_parent(self, workspace_id: UUID, parent_type: str, parent_id: UUID, *,
-                       limit: int | None = None, offset: int = 0) -> list[ChangeLogEntry]:
+                       limit: int | None = None, offset: int = 0,
+                       newest_first: bool = False) -> list[ChangeLogEntry]:
         query = self._query(workspace_id).where(
             ChangeLogModel.parent_entity_type == parent_type,
             ChangeLogModel.parent_entity_id == parent_id)
-        return self._list(query.order_by(ChangeLogModel.recorded_at,
-                                         ChangeLogModel.revision_no, ChangeLogModel.id),
-                          limit=limit, offset=offset)
+        if newest_first:
+            query = query.order_by(ChangeLogModel.recorded_at.desc(),
+                                   ChangeLogModel.revision_no.desc(),
+                                   ChangeLogModel.id.desc())
+        else:
+            query = query.order_by(ChangeLogModel.recorded_at,
+                                   ChangeLogModel.revision_no, ChangeLogModel.id)
+        return self._list(query, limit=limit, offset=offset)
 
     def list_by_operation(self, workspace_id: UUID,
                           operation_id: UUID) -> list[ChangeLogEntry]:
